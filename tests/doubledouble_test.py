@@ -39,6 +39,7 @@ class DoubleDoubleTest(jtu.JaxTestCase):
     op_doubled = doubledouble(op)
     args = (rng(shape, dtype),)
     self.assertAllClose(op(*args), op_doubled(*args))
+
   @parameterized.named_parameters(jtu.cases_from_list(
     {"testcase_name": "_{}_{}".format(
         op.__name__, jtu.format_shape_dtype_string(shape, dtype)),

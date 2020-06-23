@@ -156,10 +156,12 @@ def _abs2(x):
 doubling_rules[lax.abs_p] = _abs2
 
 def _neg2(x):
+  """Negate a doubledouble pair."""
   return (-x[0], -x[1])
 doubling_rules[lax.neg_p] = _neg2
 
 def _add2(x, y):
+  """Add two doubledouble pairs."""
   (x, xx), (y, yy) = x, y
   r = x + y
   s = jnp.where(
@@ -173,6 +175,7 @@ def _add2(x, y):
 doubling_rules[lax.add_p] = _add2
 
 def _sub2(x, y):
+  """Subtract two doubledouble pairs."""
   (x, xx), (y, yy) = x, y
   r = x - y
   s = jnp.where(
@@ -186,6 +189,7 @@ def _sub2(x, y):
 doubling_rules[lax.sub_p] = _sub2
 
 def _mul12(x, y):
+  """Multiply two floats, returning a doubledouble pair."""
   dtype = jnp.result_type(x, y)
   K = _mul_const(dtype)
   p = x * K
@@ -201,6 +205,7 @@ def _mul12(x, y):
   return z, zz
 
 def _mul2(x, y):
+  """Multiply two doubledouble pairs."""
   (x, xx), (y, yy) = x, y
   c, cc = _mul12(x, y)
   cc = x * yy + xx * y + cc
@@ -210,6 +215,7 @@ def _mul2(x, y):
 doubling_rules[lax.mul_p] = _mul2
 
 def _div2(x, y):
+  """Divide two doubledouble pairs."""
   (x, xx), (y, yy) = x, y
   c = x / y
   u, uu = _mul12(c, y)
@@ -220,6 +226,7 @@ def _div2(x, y):
 doubling_rules[lax.div_p] = _div2
 
 def _sqrt2(x):
+  """Compute the square root of a doubledouble pair."""
   x, xx = x
   c = lax.sqrt(x)
   u, uu = _mul12(c, c)
@@ -229,6 +236,18 @@ def _sqrt2(x):
   return y, yy
 doubling_rules[lax.sqrt_p] = _sqrt2
 
+def _intpow2(x, n):
+  """Raise a doubledouble pair x to an integer power n."""
+  n = int(n)
+  y = (jnp.ones_like(x[0]), jnp.zeros_like(x[0]))
+  init_val = (abs(n), x, y)
+  cond_fun = lambda val: val[0] > 0
+  def body_fun(val):
+    n, x, y = val
+    y = lax.cond(n & 1 > 0, lambda y: _mul2(y, x), lambda y: y, y)
+    return (n >> 1, _mul2(x, x), y)
+  y = lax.while_loop(cond_fun, body_fun, init_val)[2]
+  return lax.cond(n < 0, lambda y: _div2((1.0, 0), y), lambda y: y, y)
 
 def _def_inequality(prim, op):
   def transformed(x, y):
