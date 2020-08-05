@@ -5487,8 +5487,8 @@ def _infeed_abstract_eval(token, *, shapes, partitions):
 
 
 def _infeed_translation_rule(c, token, *, shapes, partitions):
-  shape = tuple(xla.aval_to_xla_shape(x).with_major_to_minor_layout_if_absent()
-                for x in shapes)
+  shape = tuple(xla_shape.with_major_to_minor_layout_if_absent()
+                for x in shapes for xla_shape in xla.aval_to_xla_shape(x))
   build_infeed = partial(xops.InfeedWithToken, token,
                          xla_client.Shape.tuple_shape(shape))
   if partitions:

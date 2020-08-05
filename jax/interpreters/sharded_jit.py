@@ -182,8 +182,9 @@ def _execute_spatially_partitioned(compiled, in_handler, out_handler, *args):
 def _xla_sharded_args(c, avals, in_parts):
   xla_args = []
   for i, (sharding, aval) in enumerate(safe_zip(in_parts, avals)):
-    param = xb.with_sharding(c, sharding, xb.parameter, c, i,
-                             xla.aval_to_xla_shape(aval))
+    # TODO(vanderplas): generalize this? Can this handle multiple values?
+    xla_shape, = xla.aval_to_xla_shapes(aval)
+    param = xb.with_sharding(c, sharding, xb.parameter, c, i, xla_shape)
     xla_args.append(param)
   return xla_args
 
