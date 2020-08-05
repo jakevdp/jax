@@ -1049,8 +1049,12 @@ abstract_token = AbstractToken()
 
 
 def raise_to_shaped(aval: AbstractValue, weak_type=False):
+  # TODO: allow registering new handlers here, similar to pytype_aval_mappings.
+  from jax.experimental import sparse  # avoid circular import.
   if isinstance(aval, ShapedArray):
     return ShapedArray(aval.shape, aval.dtype, weak_type=weak_type)
+  elif isinstance(aval, _sparse.ShapedCSRMatrix):
+    return _sparse.ShapedCSRMatrix(aval.shape, aval.dtype, aval.nnz)
   elif aval is abstract_unit:
     return abstract_unit
   elif aval is abstract_token:
