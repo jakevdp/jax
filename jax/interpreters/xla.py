@@ -16,7 +16,7 @@
 from collections import defaultdict, deque, namedtuple
 import itertools as it
 import operator as op
-from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Type, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Type, Tuple, Union
 from warnings import warn
 
 from absl import logging
@@ -78,8 +78,8 @@ def _make_unit(c): return xb.constant(c, np.zeros((), dtype=np.dtype('bool')))
 def _make_abstract_unit(_): return xc.Shape.array_shape(np.dtype('bool'), ())
 def _device_put_unit(_, device):
   backend = xb.get_device_backend(device)
-  return backend.buffer_from_pyval(np.zeros((), dtype=np.dtype('bool')),
-                                   device)
+  return (backend.buffer_from_pyval(np.zeros((), dtype=np.dtype('bool')),
+                                    device),)
 def _make_array_shape(a):
   return xc.Shape.array_shape(a.dtype, a.shape)
 
@@ -114,7 +114,7 @@ xla_result_handlers: Dict[Type[core.AbstractValue], Callable[..., Callable]] = {
     ConcreteArray: array_result_handler,
 }
 
-def device_put(x, device: Optional[Device] = None):
+def device_put(x, device: Optional[Device] = None) -> Tuple[Any]:
   x = canonicalize_dtype(x)
   try:
     return device_put_handlers[type(x)](x, device)
@@ -123,12 +123,12 @@ def device_put(x, device: Optional[Device] = None):
 
 def _device_put_array(x, device: Optional[Device]):
   backend = xb.get_device_backend(device)
-  return backend.buffer_from_pyval(x, device)
+  return (backend.buffer_from_pyval(x, device),)
 
 def _device_put_scalar(x, device):
   return _device_put_array(dtypes.coerce_to_array(x), device)
 
-device_put_handlers: Dict[Any, Callable[[Any, Optional[Device]], Any]] = {core.Unit: _device_put_unit}
+device_put_handlers: Dict[Any, Callable[[Any, Optional[Device]], Tuple[Any]]] = {core.Unit: _device_put_unit}
 device_put_handlers.update((t, _device_put_array) for t in array_types)
 device_put_handlers.update((t, _device_put_scalar) for t in _scalar_types)
 
@@ -326,7 +326,8 @@ def backend_compile(backend, built_c, options):
 
 def _execute_compiled_primitive(prim, compiled, result_handler, *args):
   device, = compiled.local_devices()
-  input_bufs = [device_put(x, device) for x in args if x is not token]
+  input_bufs = list(it.chain(
+    *(device_put(x, device) for x in args if x is not token)))
   out_bufs = compiled.execute(input_bufs)
   if FLAGS.jax_debug_nans:
     check_nans(prim, out_bufs)
@@ -334,7 +335,7 @@ def _execute_compiled_primitive(prim, compiled, result_handler, *args):
 
 def _execute_replicated_primitive(prim, compiled, result_handler, *args):
   input_bufs = [
-      [device_put(x, device) for x in args if x is not token]
+      list(it.chain(*(device_put(x, device) for x in args if x is not token)))
       for device in compiled.local_devices()]
   out_buf = compiled.execute_on_local_devices(input_bufs)[0]
   if not prim.multiple_results:
@@ -758,14 +759,15 @@ def _xla_param(builder, param_num, xla_shape, replicated, partitions):
 
 def _execute_compiled(compiled: XlaExecutable, handlers, *args):
   device, = compiled.local_devices()
-  input_bufs = [device_put(x, device) for x in args if x is not token]
+  input_bufs = list(it.chain(
+    *(device_put(x, device) for x in args if x is not token)))
   out_bufs = compiled.execute(input_bufs)
   if FLAGS.jax_debug_nans: check_nans(xla_call_p, out_bufs)
   return [handler(out_buf) for handler, out_buf in zip(handlers, out_bufs)]
 
 def _execute_replicated(compiled: XlaExecutable, handlers, *args):
   input_bufs = [
-      [device_put(x, device) for x in args if x is not token]
+      list(it.chain(*(device_put(x, device) for x in args if x is not token)))
       for device in compiled.local_devices()]
   out_bufs = compiled.execute_on_local_devices(input_bufs)[0]
   if FLAGS.jax_debug_nans: check_nans(xla_call_p, out_bufs)
@@ -778,7 +780,7 @@ def _execute_trivial(jaxpr, device: Optional[Device], consts, handlers, *args):
   outs = [canonicalize_dtype(v.val) if type(v) is Literal else env[v]
           for v in jaxpr.outvars]
   return [_copy_device_array_to_device(x, device) if type(x) is DeviceArray
-          else h(device_put(x, device)) for h, x in zip(handlers, outs)]
+          else h(*device_put(x, device)) for h, x in zip(handlers, outs)]
 
 xla_call_p = core.CallPrimitive('xla_call')
 xla_call = xla_call_p.bind
@@ -945,7 +947,11 @@ class DeviceArray:
   _HAS_DYNAMIC_ATTRIBUTES = True
 
   def __init__(self, aval: core.ShapedArray, device: Optional[Device],
-               lazy_expr: lazy.LazyExpr, device_buffer: PyLocalBuffer):
+               lazy_expr: lazy.LazyExpr,
+               device_buffer: Union[PyLocalBuffer, Tuple[PyLocalBuffer]]):
+    if isinstance(device_buffer, Sequence):
+      assert len(device_buffer) == 1, "DeviceArray only supports a single device_buffer"
+      device_buffer = device_buffer[0]
     self.aval = aval
     self.device_buffer = device_buffer
     self._device = device
@@ -1133,7 +1139,7 @@ xb.register_constant_handler(DeviceArray, _device_array_constant_handler)
 
 def _device_put_device_array(x: DeviceArray, device: Optional[Device]):
   x = _copy_device_array_to_device(x, device)
-  return _force(x).device_buffer
+  return (_force(x).device_buffer,)
 device_put_handlers[DeviceArray] = _device_put_device_array
 
 def _copy_device_array_to_device(x: DeviceArray, device: Optional[xc.Device]) -> DeviceArray:
@@ -1216,7 +1222,7 @@ def _device_put_impl(x, device: Optional[Device] = None):
     raise TypeError(
         f"Argument '{x}' of type {type(x)} is not a valid JAX type") from err
   handler = aval_to_result_handler(device, a)  # type: ignore[arg-type]
-  return handler(device_put(x, device))
+  return handler(*device_put(x, device))
 
 device_put_p = core.Primitive('device_put')
 device_put_p.def_impl(_device_put_impl)

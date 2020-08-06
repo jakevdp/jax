@@ -1424,7 +1424,7 @@ def _device_put_raw(x):
     return x
   else:
     aval = raise_to_shaped(core.get_aval(x))
-    return xla.array_result_handler(None, aval)(xla.device_put(x))
+    return xla.array_result_handler(None, aval)(*xla.device_put(x))
 
 def iota(dtype: DType, size: int) -> Array:
   """Wraps XLA's `Iota
