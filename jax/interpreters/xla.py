@@ -75,19 +75,20 @@ _scalar_types = dtypes.python_scalar_dtypes.keys()
 
 # unit representation
 def _make_unit(c): return xb.constant(c, np.zeros((), dtype=np.dtype('bool')))
-def _make_abstract_unit(_): return xc.Shape.array_shape(np.dtype('bool'), ())
+def _make_abstract_unit(_):
+  return (xc.Shape.array_shape(np.dtype('bool'), ()),)
 def _device_put_unit(_, device):
   backend = xb.get_device_backend(device)
   return (backend.buffer_from_pyval(np.zeros((), dtype=np.dtype('bool')),
                                     device),)
 def _make_array_shape(a):
-  return xc.Shape.array_shape(a.dtype, a.shape)
+  return (xc.Shape.array_shape(a.dtype, a.shape),)
 
 ### handlers
 
 xb.register_constant_handler(core.Unit, lambda c, *_: _make_unit(c))
 
-def aval_to_xla_shape(aval):
+def aval_to_xla_shapes(aval):
   try:
     return xla_shape_handlers[type(aval)](aval)
   except KeyError as err:
@@ -729,17 +730,17 @@ def _xla_callable_args(
     else:
       parts = [_replicated_param if part is None else part
                for part in partitions]
-    return [_xla_param(c, i, aval_to_xla_shape(a), r, p)
+    return [_xla_param(c, i, xla_shape, r, p)
             if a is not abstract_token else xops.CreateToken(c)
-            for i, (a, r, p)
-            in enumerate(safe_zip(avals, replicated, parts))]
+            for i, (a, r, p) in enumerate(safe_zip(avals, replicated, parts))
+            for xla_shape in aval_to_xla_shapes(a)]
   else:
     if replicated is not None:
       replicated = [r for a, r in zip(avals, replicated)
                     if a is not abstract_token]
     tuple_parts = tuple(partitions) if partitions is not None else None
     tuple_shape = xc.Shape.tuple_shape(
-        [aval_to_xla_shape(a) for a in avals if a is not abstract_token])
+        [shape for a in avals for shape in aval_to_xla_shapes(a) if a is not abstract_token])
     tuple_param = _xla_param(c, 0, tuple_shape, replicated, tuple_parts)
     xla_inputs = iter(xla_destructure(c, tuple_param))
     xla_args = [next(xla_inputs) if a is not abstract_token else
@@ -922,7 +923,7 @@ token = Token()
 
 pytype_aval_mappings[Token] = lambda _: abstract_token
 core.pytype_aval_mappings[Token] = lambda _: abstract_token
-xla_shape_handlers[AbstractToken] = lambda _: xc.Shape.token_shape()
+xla_shape_handlers[AbstractToken] = lambda _: (xc.Shape.token_shape(),)
 xla_result_handlers[AbstractToken] = lambda _, __: lambda _: token
 canonicalize_dtype_handlers[Token] = identity
 
