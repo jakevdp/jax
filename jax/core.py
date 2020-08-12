@@ -749,6 +749,7 @@ def eval_context():
 
 class AbstractValue:
   __slots__: List[str] = []
+  _num_buffers = 1  # number of XLA buffers used to represent the value.
 
   def at_least_vspace(self):
     assert False
@@ -771,6 +772,8 @@ class Bot(AbstractValue): pass
 bot = Bot()
 
 class AbstractUnit(AbstractValue):
+  # TODO(jakevdp): possible to set zero buffers?
+  # _num_buffers = 0
   def join(self, other):
     if not skip_checks:
       assert other is abstract_unit, other

@@ -386,11 +386,12 @@ def jaxpr_subcomp(c, jaxpr, backend, axis_env, consts, name_stack, *args):
   else:
     platform = backend
 
-  def read(v):
-    if type(v) is Literal:
-      return xb.constant(c, canonicalize_dtype(v.val))
-    else:
-      return env[v]
+  def read(vals):
+    for v in vals:
+      if type(v) is Literal:
+        yield xb.constant(c, canonicalize_dtype(v.val))
+      else:
+        yield from env[v]
 
   def aval(v):
     if type(v) is Literal:
@@ -398,14 +399,16 @@ def jaxpr_subcomp(c, jaxpr, backend, axis_env, consts, name_stack, *args):
     else:
       return v.aval
 
-  def write(v, node):
-    assert node is not None
-    env[v] = node
+  def write(vals, nodes):
+    assert sum(v.aval._num_buffers for v in vals) == len(nodes)
+    nodes = iter(nodes)
+    for v in vals:
+      env[v] = tuple(it.islice(nodes, v.aval._num_buffers))
 
   env = {}
-  write(core.unitvar, _make_unit(c))
-  map(write, jaxpr.constvars, consts)
-  map(write, jaxpr.invars, args)
+  write([core.unitvar], [_make_unit(c)])
+  write(jaxpr.constvars, consts)
+  write(jaxpr.invars, args)
   for eqn in jaxpr.eqns:
     frame = source_info_util.user_frame(eqn.source_info)
     c.set_op_metadata(xc.OpMetadata(
@@ -414,7 +417,7 @@ def jaxpr_subcomp(c, jaxpr, backend, axis_env, consts, name_stack, *args):
             eqn.primitive.name, eqn.params)),
         source_file=frame.file_name if frame else None,
         source_line=frame.line_num if frame else None))
-    in_nodes = map(read, eqn.invars)
+    in_nodes = list(read(eqn.invars))
     if eqn.primitive in backend_specific_translations[platform]:
       rule = backend_specific_translations[platform][eqn.primitive]
       ans = rule(c, *in_nodes, **eqn.params)
@@ -441,8 +444,8 @@ def jaxpr_subcomp(c, jaxpr, backend, axis_env, consts, name_stack, *args):
     c.get_shape(ans)  # force xla to do shape error checking
     out_nodes = xla_destructure(c, ans) if eqn.primitive.multiple_results else [ans]
     c.clear_op_metadata()
-    map(write, eqn.outvars, out_nodes)
-  return map(read, jaxpr.outvars)
+    write(eqn.outvars, out_nodes)
+  return list(read(jaxpr.outvars))
 
 def xla_destructure(c, ans):
   num_elements = len(c.get_shape(ans).tuple_shapes())
