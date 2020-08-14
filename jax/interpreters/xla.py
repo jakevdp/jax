@@ -440,9 +440,17 @@ def jaxpr_subcomp(c, jaxpr, backend, axis_env, consts, name_stack, *args):
       raise NotImplementedError(
           f"XLA translation rule for primitive '{eqn.primitive.name}' not found")
 
-    assert isinstance(ans, xe.XlaOp)
-    c.get_shape(ans)  # force xla to do shape error checking
-    out_nodes = xla_destructure(c, ans) if eqn.primitive.multiple_results else [ans]
+    # TODO(jakevdp): combine this with multiple results?
+    if isinstance(ans, Sequence):
+      assert all(isinstance(a, xe.XlaOp) for a in ans)
+      assert not eqn.primitive.multiple_results  # TODO(jakevdp): handle this
+      # do we need xops.Tuple in the return?
+      [c.get_shape(a) for a in ans]  # force xla to do shape error checking
+      out_nodes = ans
+    else:
+      assert isinstance(ans, xe.XlaOp)
+      c.get_shape(ans)  # force xla to do shape error checking
+      out_nodes = xla_destructure(c, ans) if eqn.primitive.multiple_results else [ans]
     c.clear_op_metadata()
     write(eqn.outvars, out_nodes)
   return list(read(jaxpr.outvars))
@@ -743,9 +751,10 @@ def _xla_callable_args(
     else:
       parts = [_replicated_param if part is None else part
                for part in partitions]
-    return [_xla_param(c, i, xla_shape, r, p)
+    counts = it.count()
+    return [_xla_param(c, next(counts), xla_shape, r, p)
             if a is not abstract_token else xops.CreateToken(c)
-            for i, (a, r, p) in enumerate(safe_zip(avals, replicated, parts))
+            for (a, r, p) in safe_zip(avals, replicated, parts)
             for xla_shape in aval_to_xla_shapes(a)]
   else:
     if replicated is not None:

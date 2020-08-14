@@ -112,7 +112,7 @@ def _identity_abstract_eval(mat):
   return mat
 
 def _identity_translation_rule(c, data, indices):
-  return xops.Tuple(c, [data, indices])
+  return (data, indices)
 
 xla.translations[identity_p] = _identity_translation_rule
 
