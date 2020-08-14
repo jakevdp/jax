@@ -339,7 +339,7 @@ def backend_compile(backend, built_c, options):
 
 def _execute_compiled_primitive(prim, compiled, result_handler, *args):
   device, = compiled.local_devices()
-  input_bufs = [buf for x in args for buf in device_put(x, device) if x is not token]
+  input_bufs = list(it.chain.from_iterable(device_put(x, device) for x in args if x is not token))
   out_bufs = compiled.execute(input_bufs)
   if FLAGS.jax_debug_nans:
     check_nans(prim, out_bufs)
@@ -347,7 +347,7 @@ def _execute_compiled_primitive(prim, compiled, result_handler, *args):
 
 def _execute_replicated_primitive(prim, compiled, result_handler, *args):
   input_bufs = [
-      [buf for x in args for buf in device_put(x, device) if x is not token]
+      list(it.chain.from_iterable(device_put(x, device) for x in args if x is not token))
       for device in compiled.local_devices()]
   out_bufs = compiled.execute_on_local_devices(input_bufs)[0]
   return result_handler(*out_bufs)
@@ -387,11 +387,13 @@ def jaxpr_subcomp(c, jaxpr, backend, axis_env, consts, name_stack, *args):
     platform = backend
 
   def read(vals):
-    for v in vals:
-      if type(v) is Literal:
-        yield xb.constant(c, canonicalize_dtype(v.val))
-      else:
-        yield from env[v]
+    def gen():
+      for v in vals:
+        if type(v) is Literal:
+          yield xb.constant(c, canonicalize_dtype(v.val))
+        else:
+          yield from env[v]
+    return list(gen())
 
   def aval(v):
     if type(v) is Literal:
@@ -424,7 +426,7 @@ def jaxpr_subcomp(c, jaxpr, backend, axis_env, consts, name_stack, *args):
             eqn.primitive.name, eqn.params)),
         source_file=frame.file_name if frame else None,
         source_line=frame.line_num if frame else None))
-    in_nodes = list(read(eqn.invars))
+    in_nodes = read(eqn.invars)
     if eqn.primitive in backend_specific_translations[platform]:
       rule = backend_specific_translations[platform][eqn.primitive]
       ans = rule(c, *in_nodes, **eqn.params)
@@ -452,7 +454,7 @@ def jaxpr_subcomp(c, jaxpr, backend, axis_env, consts, name_stack, *args):
     out_nodes = xla_destructure(c, ans) if eqn.primitive.multiple_results else [ans]
     c.clear_op_metadata()
     destructure_and_write(c, eqn.outvars, out_nodes)
-  return list(read(jaxpr.outvars))
+  return read(jaxpr.outvars)
 
 
 def xla_destructure(c, ans):
