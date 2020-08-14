@@ -782,8 +782,7 @@ def _xla_param(builder, param_num, xla_shape, replicated, partitions):
 
 def _execute_compiled(compiled: XlaExecutable, nouts, handlers, *args):
   device, = compiled.local_devices()
-  input_bufs = list(it.chain(
-    *(device_put(x, device) for x in args if x is not token)))
+  input_bufs = list(it.chain.from_iterable(device_put(x, device) for x in args if x is not token))
   out_bufs = compiled.execute(input_bufs)
   if FLAGS.jax_debug_nans:
     check_nans(xla_call_p, out_bufs)
@@ -791,7 +790,7 @@ def _execute_compiled(compiled: XlaExecutable, nouts, handlers, *args):
 
 def _execute_replicated(compiled: XlaExecutable, nouts, handlers, *args):
   input_bufs = [
-      list(it.chain(*(device_put(x, device) for x in args if x is not token)))
+      list(it.chain.from_iterable(device_put(x, device) for x in args if x is not token))
       for device in compiled.local_devices()]
   out_bufs = compiled.execute_on_local_devices(input_bufs)[0]
   if FLAGS.jax_debug_nans:

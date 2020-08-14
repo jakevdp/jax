@@ -1026,7 +1026,7 @@ class PmapTest(jtu.JaxTestCase):
     # subsequent pmap
     shard_shape = (3,2)
     shard = jnp.arange(prod(shard_shape)).reshape(shard_shape)
-    bufs = list(it.chain(*(xla.device_put(shard, d) for d in xla_bridge.devices()[:4])))
+    bufs = list(it.chain.from_iterable(xla.device_put(shard, d) for d in xla_bridge.devices()[:4]))
     aval = ShapedArray((6,4), shard.dtype)
     sharding_spec = pxla.ShardingSpec(
         shards_per_axis=(2, 2),
