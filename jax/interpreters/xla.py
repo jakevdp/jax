@@ -230,7 +230,7 @@ def apply_primitive(prim, *args, **params):
 
 
 def _partition_outputs(nouts, outs):
-  assert sum(nouts) == len(outs), "Internal error: sum(nouts)={sum(nouts)} should equal len(outs)={len(outs)}."
+  assert sum(nouts) == len(outs), f"Internal error: sum(nouts)={sum(nouts)} should equal len(outs)={len(outs)}."
   outs = iter(outs)
   return [[next(outs) for _ in range(nout)] for nout in nouts]
 
