@@ -230,7 +230,7 @@ def apply_primitive(prim, *args, **params):
 
 
 def _partition_outputs(nouts, outs):
-  assert sum(nouts) == len(outs), "Internal error: sum(nouts) should equal len(outs)."
+  assert sum(nouts) == len(outs), "Internal error: sum(nouts)={sum(nouts)} should equal len(outs)={len(outs)}."
   outs = iter(outs)
   return [[next(outs) for _ in range(nout)] for nout in nouts]
 
@@ -250,12 +250,11 @@ def xla_primitive_callable(prim, *arg_specs: Tuple[core.AbstractValue,
                          *arg_specs)
   aval_out = prim.abstract_eval(*avals, **params)
   if not prim.multiple_results:
-    nouts, handle_result = aval_to_result_handler(device, aval_out)
-    assert nouts == 1, "Internal error: expected nouts == 1"
+    _, handle_result = aval_to_result_handler(device, aval_out)
   else:
     nouts, handlers = unzip2(map(partial(aval_to_result_handler, device), aval_out))
-    handle_result = lambda *bufses:\
-      tuple(h(*bufs) for h, bufs in zip(handlers, _partition_outputs(nouts, bufses)))
+    handle_result = lambda *bufs:\
+      tuple(handler(*bs) for handler, bs in zip(handlers, _partition_outputs(nouts, bufs)))
   tuple_args = len(avals) > 100
   if prim in initial_style_translations:
     nreps = initial_style_primitive_replicas(params)
