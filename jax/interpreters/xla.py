@@ -101,7 +101,7 @@ xla_shape_handlers: Dict[Type[core.AbstractValue], Callable] = {
     ConcreteArray: _make_array_shape,
 }
 
-def aval_to_result_handler(device: Optional[Device], aval: core.ShapedArray) -> Tuple[int, Callable]:
+def aval_to_result_handler(device: Optional[Device], aval: core.AbstractValue) -> Tuple[int, Callable]:
   try:
     return aval._num_buffers, xla_result_handlers[type(aval)](device, aval)
   except KeyError as err:
@@ -250,8 +250,7 @@ def xla_primitive_callable(prim, *arg_specs: Tuple[core.AbstractValue,
                          *arg_specs)
   aval_out = prim.abstract_eval(*avals, **params)
   if not prim.multiple_results:
-    nouts, handle_result = aval_to_result_handler(device, aval_out)
-    assert nouts == 1
+    _, handle_result = aval_to_result_handler(device, aval_out)
   else:
     nouts, handlers = unzip2(map(partial(aval_to_result_handler, device), aval_out))
     handle_result = lambda *bufs:\
@@ -1243,8 +1242,7 @@ def _device_put_impl(x, device: Optional[Device] = None):
   except TypeError as err:
     raise TypeError(
         f"Argument '{x}' of type {type(x)} is not a valid JAX type") from err
-  nouts, handler = aval_to_result_handler(device, a)  # type: ignore[arg-type]
-  assert nouts == 1, "DeviceArray cannot handle aval with multiple buffers."
+  nouts, handler = aval_to_result_handler(device, a)
   return handler(*device_put(x, device))
 
 device_put_p = core.Primitive('device_put')
