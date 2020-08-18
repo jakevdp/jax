@@ -250,7 +250,8 @@ def xla_primitive_callable(prim, *arg_specs: Tuple[core.AbstractValue,
                          *arg_specs)
   aval_out = prim.abstract_eval(*avals, **params)
   if not prim.multiple_results:
-    _, handle_result = aval_to_result_handler(device, aval_out)
+    nouts, handle_result = aval_to_result_handler(device, aval_out)
+    assert nouts == 1
   else:
     nouts, handlers = unzip2(map(partial(aval_to_result_handler, device), aval_out))
     handle_result = lambda *bufs:\
@@ -400,13 +401,6 @@ def jaxpr_subcomp(c, jaxpr, backend, axis_env, consts, name_stack, *args):
     else:
       return v.aval
 
-  def destructure_and_write(c, vals, nodes):
-    for v, n in safe_zip(vals, nodes):
-      if v.aval._num_buffers == 1:
-        env[v] = (n,)
-      else:
-        env[v] = tuple(xla_destructure(c, n))
-
   def write(vals, nodes):
     assert sum(v.aval._num_buffers for v in vals) == len(nodes)
     nodes = iter(nodes)
@@ -450,9 +444,12 @@ def jaxpr_subcomp(c, jaxpr, backend, axis_env, consts, name_stack, *args):
 
     assert isinstance(ans, xe.XlaOp)
     c.get_shape(ans)  # force xla to do shape error checking
-    out_nodes = xla_destructure(c, ans) if eqn.primitive.multiple_results else [ans]
+    if eqn.primitive.multiple_results or any(v.aval._num_buffers > 1 for v in eqn.outvars):
+      out_nodes = xla_destructure(c, ans)
+    else:
+      out_nodes = [ans]
     c.clear_op_metadata()
-    destructure_and_write(c, eqn.outvars, out_nodes)
+    write(eqn.outvars, out_nodes)
   return read(jaxpr.outvars)
 
 

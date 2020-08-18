@@ -16,7 +16,7 @@ from absl.testing import absltest, parameterized
 
 from jax import test_util as jtu
 import jax.numpy as jnp
-from jax import core, jit, lazy
+from jax import core, jit, lax, lazy
 from jax.interpreters import xla
 from jax.lib import xla_client
 xops = xla_client.ops
@@ -141,6 +141,17 @@ class CustomObjectTest(jtu.JaxTestCase):
     self.assertEqual(M.index_dtype, M2.index_dtype)
     self.assertAllClose(M.data, M2.data)
     self.assertAllClose(M.indices, M2.indices)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {"testcase_name": "_compile={}_primitive={}".format(compile, primitive),
+       "compile": compile, "primitive": primitive}
+      for primitive in [True, False]
+      for compile in [True, False]))
+  def testLaxLoop(self, compile, primitive):
+    f = identity if primitive else (lambda x: x)
+    f = jit(f) if compile else f
+    body_fun = lambda _, A: f(A)
+    lax.fori_loop(0, 10, body_fun, make_sparse_array())
 
 
 if __name__ == '__main__':
