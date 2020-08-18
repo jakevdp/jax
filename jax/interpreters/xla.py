@@ -101,9 +101,9 @@ xla_shape_handlers: Dict[Type[core.AbstractValue], Callable] = {
     ConcreteArray: _make_array_shape,
 }
 
-def aval_to_result_handler(device: Optional[Device], aval: core.AbstractValue) -> Tuple[int, Callable]:
+def aval_to_result_handler(device: Optional[Device], aval: core.AbstractValue) -> Callable:
   try:
-    return aval._num_buffers, xla_result_handlers[type(aval)](device, aval)
+    return xla_result_handlers[type(aval)](device, aval)
   except KeyError as err:
     raise TypeError(f"No xla_result_handler for type: {type(aval)}") from err
 
@@ -250,9 +250,10 @@ def xla_primitive_callable(prim, *arg_specs: Tuple[core.AbstractValue,
                          *arg_specs)
   aval_out = prim.abstract_eval(*avals, **params)
   if not prim.multiple_results:
-    _, handle_result = aval_to_result_handler(device, aval_out)
+    handle_result = aval_to_result_handler(device, aval_out)
   else:
-    nouts, handlers = unzip2(map(partial(aval_to_result_handler, device), aval_out))
+    nouts = [aval._num_buffers for aval in aval_out]
+    handlers = map(partial(aval_to_result_handler, device), aval_out)
     handle_result = lambda *bufs:\
       tuple(handler(*bs) for handler, bs in zip(handlers, _partition_outputs(nouts, bufs)))
   tuple_args = len(avals) > 100
@@ -626,9 +627,11 @@ def _xla_callable(fun: lu.WrappedFun, device, backend, name, donated_invars, *ar
   device = _xla_callable_device(nreps, backend, device, arg_devices)
   backend = device.platform if device else backend
   if config.omnistaging_enabled:
-    nouts, result_handlers = unzip2(map(partial(aval_to_result_handler, device), out_avals))
+    nouts = [aval._num_buffers for aval in out_avals]
+    result_handlers = map(partial(aval_to_result_handler, device), out_avals)
   else:
-    nouts, result_handlers = unzip2(map(partial(_pval_to_result_handler, device), pvals))
+    nouts = [1 if pval is None else pval._num_buffers for pval, _ in pvals]
+    result_handlers = map(partial(_pval_to_result_handler, device), pvals)
 
   # Computations that only produce constants and/or only rearrange their inputs,
   # which are often produced from partial evaluation, don't need compilation,
@@ -1242,8 +1245,7 @@ def _device_put_impl(x, device: Optional[Device] = None):
   except TypeError as err:
     raise TypeError(
         f"Argument '{x}' of type {type(x)} is not a valid JAX type") from err
-  nouts, handler = aval_to_result_handler(device, a)
-  return handler(*device_put(x, device))
+  return aval_to_result_handler(device, a)(*device_put(x, device))
 
 device_put_p = core.Primitive('device_put')
 device_put_p.def_impl(_device_put_impl)
@@ -1324,7 +1326,7 @@ def _pval_to_result_handler(device, pval):
   pv, const = pval
   if pv is None:
     const = _device_put_impl(const, device) if device else const
-    return (1, lambda _: const)
+    return lambda _: const
   else:
     return aval_to_result_handler(device, pv)
 
