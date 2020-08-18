@@ -103,15 +103,15 @@ xla_shape_handlers: Dict[Type[core.AbstractValue], Callable] = {
 
 def aval_to_result_handler(device: Optional[Device], aval: core.ShapedArray) -> Tuple[int, Callable]:
   try:
-    return xla_result_handlers[type(aval)](device, aval)
+    return aval._num_buffers, xla_result_handlers[type(aval)](device, aval)
   except KeyError as err:
     raise TypeError(f"No xla_result_handler for type: {type(aval)}") from err
 
 def array_result_handler(device: Optional[Device], aval: core.ShapedArray):
-  return (1, partial(DeviceArray, raise_to_shaped(aval), device, lazy.array(aval.shape)))
+  return partial(DeviceArray, raise_to_shaped(aval), device, lazy.array(aval.shape))
 
-xla_result_handlers: Dict[Type[core.AbstractValue], Callable[..., Tuple[int, Callable]]] = {
-    core.AbstractUnit: lambda _, __: (1, lambda _: core.unit),
+xla_result_handlers: Dict[Type[core.AbstractValue], Callable[..., Callable]] = {
+    core.AbstractUnit: lambda _, __: (lambda _: core.unit),
     ShapedArray: array_result_handler,
     ConcreteArray: array_result_handler,
 }
@@ -945,7 +945,7 @@ token = Token()
 pytype_aval_mappings[Token] = lambda _: abstract_token
 core.pytype_aval_mappings[Token] = lambda _: abstract_token
 xla_shape_handlers[AbstractToken] = lambda _: (xc.Shape.token_shape(),)
-xla_result_handlers[AbstractToken] = lambda _, __: (1, lambda _: token)
+xla_result_handlers[AbstractToken] = lambda _, __: (lambda _: token)
 canonicalize_dtype_handlers[Token] = identity
 
 

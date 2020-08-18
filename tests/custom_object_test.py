@@ -75,7 +75,7 @@ def sparse_array_result_handler(device, aval):
     data = xla.DeviceArray(aval.data, device, lazy.array(aval.data.shape), data_buf)
     indices = xla.DeviceArray(aval.indices, device, lazy.array(aval.indices.shape), indices_buf)
     return SparseArray(aval, aval.shape, data, indices)
-  return (2, build_sparse_array)
+  return build_sparse_array
 
 def sparse_array_shape_handler(a):
   return (
