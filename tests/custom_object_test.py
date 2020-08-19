@@ -14,6 +14,8 @@
 
 from absl.testing import absltest, parameterized
 
+import numpy as np
+
 from jax import test_util as jtu
 import jax.numpy as jnp
 from jax import core, jit, lax, lazy
@@ -156,13 +158,33 @@ def _identity_translation_rule(c, data, indices):
 
 xla.translations[identity_p] = _identity_translation_rule
 
+def make_sparse_array(rng, shape, dtype, nnz=0.2):
+  mat = rng(shape, dtype)
+  size = int(np.prod(shape))
+  if 0 < nnz < 1:
+    nnz = nnz * size
+  nnz = int(nnz)
+  if nnz == 0:
+    mat = np.zeros_like(mat)
+  elif nnz < size:
+    # TODO(jakevdp): do we care about duplicates?
+    cutoff = np.sort(mat.ravel())[nnz]
+    mat[mat >= cutoff] = 0
+  nz = (mat != 0)
+  data = jnp.array(mat[nz])
+  indices = jnp.array(np.where(nz)).T
+  aval = AbstractSparseArray(shape, data.dtype, indices.dtype, len(indices))
+  return SparseArray(aval, shape, data, indices)
 
-def make_sparse_array():
-    data = jnp.arange(5.0)
-    indices = jnp.arange(5).reshape(5, 1)
-    shape = (10,)
-    aval = AbstractSparseArray(shape, data.dtype, indices.dtype, len(indices))
-    return SparseArray(aval, shape, data, indices)
+def matvec(mat, v):
+  v = jnp.asarray(v)
+  assert v.ndim == 1
+  assert len(mat.shape) == 2
+  assert v.shape[0] == mat.shape[1]
+  rows = mat.indices[:, 0]
+  cols = mat.indices[:, 1]
+  dv = mat.data * v[cols]
+  return jnp.zeros(mat.shape[0], dtype=dv.dtype).at[rows].add(dv)
 
 
 class CustomObjectTest(jtu.JaxTestCase):
@@ -175,7 +197,8 @@ class CustomObjectTest(jtu.JaxTestCase):
   def testIdentity(self, compile, primitive):
     f = identity if primitive else (lambda x: x)
     f = jit(f) if compile else f
-    M = make_sparse_array()
+    rng = jtu.rand_default(self.rng())
+    M = make_sparse_array(rng, (10,), jnp.float32)
     M2 = f(M)
     self.assertEqual(M.dtype, M2.dtype)
     self.assertEqual(M.index_dtype, M2.index_dtype)
@@ -188,26 +211,30 @@ class CustomObjectTest(jtu.JaxTestCase):
       for primitive in [True, False]
       for compile in [True, False]))
   def testLaxLoop(self, compile, primitive):
+    rng = jtu.rand_default(self.rng())
     f = identity if primitive else (lambda x: x)
     f = jit(f) if compile else f
     body_fun = lambda _, A: f(A)
-    lax.fori_loop(0, 10, body_fun, make_sparse_array())
+    M = make_sparse_array(rng, (10,), jnp.float32)
+    lax.fori_loop(0, 10, body_fun, M)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {"testcase_name": "_attr={}".format(attr), "attr": attr}
       for attr in ["data", "indices"]))
   def testAttrAccess(self, attr):
-    args_maker = lambda: [make_sparse_array()]
+    rng = jtu.rand_default(self.rng())
+    args_maker = lambda: [make_sparse_array(rng, (10,), jnp.float32)]
     f = lambda x: getattr(x, attr)
     self._CompileAndCheck(f, args_maker)
+
+  def testMatvec(self):
+    rng = jtu.rand_default(self.rng())
+    def args_maker():
+      M = make_sparse_array(rng, (10, 3), jnp.float32)
+      v = rng(M.shape[-1:], M.dtype)
+      return M, v
+    self._CompileAndCheck(matvec, args_maker)
 
 
 if __name__ == '__main__':
   absltest.main(testLoader=jtu.JaxTestLoader())
-
-  # from jax import core
-  # core.skip_checks = False
-  # def f(x): return (x.indices, x.data)
-  # M = make_sparse_array()
-  # print(f(M))
-  # print(jit(f)(M))
