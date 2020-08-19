@@ -972,7 +972,7 @@ class DeviceArray:
 
   def __init__(self, aval: core.ShapedArray, device: Optional[Device],
                lazy_expr: lazy.LazyExpr,
-               device_buffer: Union[PyLocalBuffer, Tuple[PyLocalBuffer]]):
+               device_buffer: PyLocalBuffer):
     if isinstance(device_buffer, Sequence):
       assert len(device_buffer) == 1, "DeviceArray only supports a single device_buffer"
       device_buffer = device_buffer[0]
