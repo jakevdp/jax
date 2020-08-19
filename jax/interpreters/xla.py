@@ -16,7 +16,7 @@
 from collections import defaultdict, deque, namedtuple
 import itertools as it
 import operator as op
-from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Type, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Type, Tuple
 from warnings import warn
 
 from absl import logging
