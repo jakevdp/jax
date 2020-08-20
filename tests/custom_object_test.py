@@ -30,9 +30,9 @@ config.parse_flags_with_absl()
 # it is a jaxpr object that is backed by two device buffers.
 class SparseArray:
   """Simple sparse COO array data structure."""
-  def __init__(self, aval, shape, data, indices):
+  def __init__(self, aval, data, indices):
     self.aval = aval
-    self.shape = shape
+    self.shape = aval.shape
     self.data = data
     self.indices = indices
 
@@ -78,7 +78,7 @@ def sparse_array_result_handler(device, aval):
   def build_sparse_array(data_buf, indices_buf):
     data = xla.DeviceArray(aval.data_aval, device, lazy.array(aval.data_aval.shape), data_buf)
     indices = xla.DeviceArray(aval.indices_aval, device, lazy.array(aval.indices_aval.shape), indices_buf)
-    return SparseArray(aval, aval.shape, data, indices)
+    return SparseArray(aval, data, indices)
   return build_sparse_array
 
 def sparse_array_shape_handler(a):
@@ -110,7 +110,7 @@ def _sp_indices_impl(mat):
 
 @sp_indices_p.def_abstract_eval
 def _sp_indices_abstract_eval(mat):
-  return core.ShapedArray((mat.nnz, len(mat.shape)), mat.index_dtype)
+  return mat.indices_aval
 
 def _sp_indices_translation_rule(c, data, indices):
   return indices
@@ -125,7 +125,7 @@ def _sp_data_impl(mat):
 
 @sp_data_p.def_abstract_eval
 def _sp_data_abstract_eval(mat):
-  return core.ShapedArray((mat.nnz,), mat.dtype)
+  return mat.data_aval
 
 def _sp_data_translation_rule(c, data, indices):
   return data
@@ -139,7 +139,7 @@ identity_p = core.Primitive('identity')
 
 @identity_p.def_impl
 def _identity_impl(mat):
-  return SparseArray(mat.aval, mat.shape, mat.data, mat.indices)
+  return SparseArray(mat.aval, mat.data, mat.indices)
 
 @identity_p.def_abstract_eval
 def _identity_abstract_eval(mat):
@@ -166,7 +166,7 @@ def make_sparse_array(rng, shape, dtype, nnz=0.2):
   data = jnp.array(mat[nz])
   indices = jnp.array(np.where(nz)).T
   aval = AbstractSparseArray(shape, data.dtype, indices.dtype, len(indices))
-  return SparseArray(aval, shape, data, indices)
+  return SparseArray(aval, data, indices)
 
 def matvec(mat, v):
   v = jnp.asarray(v)
@@ -219,12 +219,15 @@ class CustomObjectTest(jtu.JaxTestCase):
     f = lambda x: getattr(x, attr)
     self._CompileAndCheck(f, args_maker)
 
-  def testMatvec(self):
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {"testcase_name": "_{}".format(
+         jtu.format_shape_dtype_string(shape, dtype)),
+       "shape": shape, "dtype": dtype}
+      for shape in [(3, 3), (2, 6), (6, 2)]
+      for dtype in jtu.dtypes.floating))
+  def testMatvec(self, shape, dtype):
     rng = jtu.rand_default(self.rng())
-    def args_maker():
-      M = make_sparse_array(rng, (10, 3), jnp.float32)
-      v = rng(M.shape[-1:], M.dtype)
-      return M, v
+    args_maker = lambda: [make_sparse_array(rng, shape, dtype), rng(shape[-1:], dtype)]
     self._CompileAndCheck(matvec, args_maker)
 
 
