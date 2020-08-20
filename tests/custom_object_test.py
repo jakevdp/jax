@@ -33,8 +33,8 @@ class SparseArray:
   def __init__(self, aval, shape, data, indices):
     self.aval = aval
     self.shape = shape
-    self._data = data
-    self._indices = indices
+    self.data = data
+    self.indices = indices
 
   @property
   def index_dtype(self):
@@ -48,28 +48,20 @@ class SparseArray:
   def nnz(self):
     return self.data.shape[0]
 
-  @property
-  def data(self):
-    return self._data
-
-  @property
-  def indices(self):
-    return self._indices
-
   def __repr__(self):
     return repr(list((tuple(ind), d) for ind, d in zip(self.indices, self.data)))
 
 
 class AbstractSparseArray(core.ShapedArray):
-  __slots__ = ['index_dtype', 'nnz', '_data', '_indices']
+  __slots__ = ['index_dtype', 'nnz', 'data_aval', 'indices_aval']
   _num_buffers = 2
 
   def __init__(self, shape, dtype, index_dtype, nnz):
     super(AbstractSparseArray, self).__init__(shape, dtype)
     self.index_dtype = index_dtype
     self.nnz = nnz
-    self._data = core.ShapedArray((self.nnz,), self.dtype)
-    self._indices = core.ShapedArray((self.nnz, len(self.shape)), self.index_dtype)
+    self.data_aval = core.ShapedArray((nnz,), dtype)
+    self.indices_aval = core.ShapedArray((nnz, len(shape)), index_dtype)
 
   @core.aval_property
   def data(self):
@@ -84,15 +76,15 @@ def abstract_sparse_array(arr):
 
 def sparse_array_result_handler(device, aval):
   def build_sparse_array(data_buf, indices_buf):
-    data = xla.DeviceArray(aval._data, device, lazy.array(aval._data.shape), data_buf)
-    indices = xla.DeviceArray(aval._indices, device, lazy.array(aval._indices.shape), indices_buf)
+    data = xla.DeviceArray(aval.data_aval, device, lazy.array(aval.data_aval.shape), data_buf)
+    indices = xla.DeviceArray(aval.indices_aval, device, lazy.array(aval.indices_aval.shape), indices_buf)
     return SparseArray(aval, aval.shape, data, indices)
   return build_sparse_array
 
 def sparse_array_shape_handler(a):
   return (
-    xla.xc.Shape.array_shape(a._data.dtype, a._data.shape),
-    xla.xc.Shape.array_shape(a._indices.dtype, a._indices.shape),
+    xla.xc.Shape.array_shape(a.data_aval.dtype, a.data_aval.shape),
+    xla.xc.Shape.array_shape(a.indices_aval.dtype, a.indices_aval.shape),
   )
 
 def sparse_array_device_put_handler(a, device):
