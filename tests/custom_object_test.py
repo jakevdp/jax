@@ -179,6 +179,36 @@ def matvec(mat, v):
   return jnp.zeros(mat.shape[0], dtype=dv.dtype).at[rows].add(dv)
 
 
+class Empty:
+  def __init__(self, aval):
+    self.aval = aval
+
+class AbstractEmpty(core.AbstractValue):
+  _num_buffers = 0
+
+  def join(self, other):
+    assert isinstance(other, self.__class__), other
+    return self
+
+  def __hash__(self):
+    return hash(())
+
+  def __eq__(self, other):
+    return isinstance(other, AbstractEmpty)
+
+
+def abstract_empty(e):
+  return AbstractEmpty()
+
+core.pytype_aval_mappings[Empty] = abstract_empty
+core.raise_to_shaped_mappings[AbstractEmpty] = lambda aval, _: aval
+xla.pytype_aval_mappings[Empty] = abstract_empty
+xla.canonicalize_dtype_handlers[Empty] = lambda x: x
+xla.device_put_handlers[Empty] = lambda _, __: ()
+xla.xla_result_handlers[AbstractEmpty] = lambda _, __: lambda: Empty(AbstractEmpty())
+xla.xla_shape_handlers[AbstractEmpty] = lambda _: ()
+
+
 class CustomObjectTest(jtu.JaxTestCase):
 
   @parameterized.named_parameters(jtu.cases_from_list(
@@ -229,6 +259,12 @@ class CustomObjectTest(jtu.JaxTestCase):
     rng = jtu.rand_default(self.rng())
     args_maker = lambda: [make_sparse_array(rng, shape, dtype), rng(shape[-1:], dtype)]
     self._CompileAndCheck(matvec, args_maker)
+
+  def testEmptyObject(self):
+    args_maker = lambda: [Empty(AbstractEmpty())]
+    # cannot return a unit, because CompileAndCheck assumes array output.
+    testfunc = lambda e: None
+    self._CompileAndCheck(testfunc, args_maker)
 
 
 if __name__ == '__main__':
