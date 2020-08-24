@@ -18,7 +18,7 @@ import numpy as np
 
 from jax import test_util as jtu
 import jax.numpy as jnp
-from jax import core, jit, lax, lazy
+from jax import core, jit, lax, lazy, make_jaxpr
 from jax.interpreters import xla
 from jax.lib import xla_client
 xops = xla_client.ops
@@ -222,6 +222,10 @@ class CustomObjectTest(jtu.JaxTestCase):
     rng = jtu.rand_default(self.rng())
     M = make_sparse_array(rng, (10,), jnp.float32)
     M2 = f(M)
+
+    jaxpr = make_jaxpr(f)(M).jaxpr
+    core.check_jaxpr(jaxpr)
+
     self.assertEqual(M.dtype, M2.dtype)
     self.assertEqual(M.index_dtype, M2.index_dtype)
     self.assertAllClose(M.data, M2.data)
