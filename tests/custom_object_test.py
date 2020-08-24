@@ -216,7 +216,7 @@ class CustomObjectTest(jtu.JaxTestCase):
        "compile": compile, "primitive": primitive}
       for primitive in [True, False]
       for compile in [True, False]))
-  def testIdentity(self, compile, primitive):
+  def testSparseIdentity(self, compile, primitive):
     f = identity if primitive else (lambda x: x)
     f = jit(f) if compile else f
     rng = jtu.rand_default(self.rng())
@@ -232,7 +232,7 @@ class CustomObjectTest(jtu.JaxTestCase):
        "compile": compile, "primitive": primitive}
       for primitive in [True, False]
       for compile in [True, False]))
-  def testLaxLoop(self, compile, primitive):
+  def testSparseLaxLoop(self, compile, primitive):
     rng = jtu.rand_default(self.rng())
     f = identity if primitive else (lambda x: x)
     f = jit(f) if compile else f
@@ -243,7 +243,7 @@ class CustomObjectTest(jtu.JaxTestCase):
   @parameterized.named_parameters(jtu.cases_from_list(
       {"testcase_name": "_attr={}".format(attr), "attr": attr}
       for attr in ["data", "indices"]))
-  def testAttrAccess(self, attr):
+  def testSparseAttrAccess(self, attr):
     rng = jtu.rand_default(self.rng())
     args_maker = lambda: [make_sparse_array(rng, (10,), jnp.float32)]
     f = lambda x: getattr(x, attr)
@@ -255,12 +255,12 @@ class CustomObjectTest(jtu.JaxTestCase):
        "shape": shape, "dtype": dtype}
       for shape in [(3, 3), (2, 6), (6, 2)]
       for dtype in jtu.dtypes.floating))
-  def testMatvec(self, shape, dtype):
+  def testSparseMatvec(self, shape, dtype):
     rng = jtu.rand_default(self.rng())
     args_maker = lambda: [make_sparse_array(rng, shape, dtype), rng(shape[-1:], dtype)]
     self._CompileAndCheck(matvec, args_maker)
 
-  def testEmptyObject(self):
+  def testLowerToNothing(self):
     args_maker = lambda: [Empty(AbstractEmpty())]
     # cannot return a unit, because CompileAndCheck assumes array output.
     testfunc = lambda e: None
