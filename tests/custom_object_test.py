@@ -265,9 +265,13 @@ class CustomObjectTest(jtu.JaxTestCase):
     self._CompileAndCheck(matvec, args_maker)
 
   def testLowerToNothing(self):
-    args_maker = lambda: [Empty(AbstractEmpty())]
+    empty = Empty(AbstractEmpty())
+    jaxpr = make_jaxpr(jit(lambda e: e))(empty).jaxpr
+    core.check_jaxpr(jaxpr)
+
     # cannot return a unit, because CompileAndCheck assumes array output.
     testfunc = lambda e: None
+    args_maker = lambda: [empty]
     self._CompileAndCheck(testfunc, args_maker)
 
 
