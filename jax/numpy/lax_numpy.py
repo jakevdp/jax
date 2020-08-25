@@ -39,7 +39,7 @@ import opt_einsum
 import jax
 from jax import jit, custom_jvp
 from .vectorize import vectorize
-from ._util import _wraps
+from ._util import _wraps, _ensure_device_array
 from .. import core
 from .. import dtypes
 from ..abstract_arrays import UnshapedArray, ShapedArray, ConcreteArray, canonicalize_shape
@@ -232,7 +232,7 @@ _np_asarray = partial(_np_array, copy=False)
 def _promote_shapes(fun_name, *args):
   """Prepend implicit leading singleton dimensions for Numpy broadcasting."""
   if len(args) < 2:
-    return args
+    return _ensure_device_array(*args)
   else:
     shapes = [shape(arg) for arg in args]
     nonscalar_ranks = [len(shp) for shp in shapes if shp]
@@ -319,10 +319,12 @@ def _constant_like(x, const):
 
 @_wraps(np.fmin)
 def fmin(x1, x2):
+  x1, x2 = _ensure_device_array(x1, x2)
   return where((x1 < x2) | isnan(x2), x1, x2)
 
 @_wraps(np.fmax)
 def fmax(x1, x2):
+  x1, x2 = _ensure_device_array(x1, x2)
   return where((x1 > x2) | isnan(x2), x1, x2)
 
 @_wraps(np.finfo)
@@ -424,7 +426,7 @@ nextafter = _one_to_one_binop(np.nextafter, lax.nextafter, True, True)
 
 def _comparison_op(numpy_fn, lax_fn):
   def fn(x1, x2):
-    x1, x2 =  _promote_args(numpy_fn.__name__, x1, x2)
+    x1, x2 = _promote_args(numpy_fn.__name__, x1, x2)
     # Comparison on complex types are defined as a lexicographic ordering on
     # the (real, imag) pair.
     if issubdtype(_dtype(x1), complexfloating):
@@ -444,6 +446,7 @@ less = _comparison_op(np.less, lax.lt)
 def _logical_op(np_op, bitwise_op):
   @_wraps(np_op, update_doc=False)
   def op(*args):
+    args = _ensure_device_array(*args)
     zero = lambda x: lax.full_like(x, shape=(), fill_value=0)
     args = (x if issubdtype(_dtype(x), bool_) else lax.ne(x, zero(x))
             for x in args)
@@ -466,12 +469,14 @@ def right_shift(x1, x2):
 
 @_wraps(np.absolute)
 def absolute(x):
+  x, = _ensure_device_array(x)
   return x if issubdtype(_dtype(x), unsignedinteger) else lax.abs(x)
 abs = _wraps(np.abs)(absolute)
 
 
 @_wraps(np.rint)
 def rint(x):
+  x, = _ensure_device_array(x)
   dtype = _dtype(x)
   if issubdtype(dtype, integer):
     return lax.convert_element_type(x, float_)
@@ -482,6 +487,7 @@ def rint(x):
 
 @_wraps(np.sign)
 def sign(x):
+  x, = _ensure_device_array(x)
   dtype = _dtype(x)
   if issubdtype(dtype, complexfloating):
     re = lax.real(x)
@@ -700,6 +706,7 @@ def trunc(x):
 
 
 def _conv(x, y, mode, op, precision):
+  x, y = _ensure_device_array(x, y)
   if issubdtype(x.dtype, complexfloating) or issubdtype(y.dtype, complexfloating):
     raise NotImplementedError(f"{op}() does not support complex inputs")
   if ndim(x) != 1 or ndim(y) != 1:
@@ -801,7 +808,7 @@ def ldexp(x1, x2):
 @_wraps(np.frexp)
 @jit
 def frexp(x):
-  x = asarray(x)
+  x, = _ensure_device_array(x)
   if issubdtype(x.dtype, complexfloating):
     raise TypeError("frexp does not support complex-valued inputs")
   elif not issubdtype(x.dtype, floating):
@@ -840,6 +847,7 @@ mod = _wraps(np.mod)(remainder)
 
 @_wraps(np.fmod)
 def fmod(x1, x2):
+  x1, x2 = _ensure_device_array(x1, x2)
   if issubdtype(_dtype(x1, x2), integer):
     x2 = where(x2 == 0, 1, x2)
   return lax.rem(*_promote_args(np.fmod, x1, x2))
@@ -873,10 +881,10 @@ radians = deg2rad
 
 @_wraps(np.histogram_bin_edges)
 def histogram_bin_edges(a, bins=10, range=None, weights=None):
+  a, bins = _ensure_device_array(a, bins)
   if isinstance(bins, str):
     raise NotImplementedError("string values for `bins` not implemented.")
   a = ravel(a)
-  b = array(bins)
   if b.ndim == 1:
     return b
   if range is None:
@@ -948,6 +956,7 @@ def transpose(a, axes=None):
 
 @_wraps(np.rot90)
 def rot90(m, k=1, axes=(0, 1)):
+  m, = _ensure_device_array(m)
   ax1, ax2 = axes
   ax1 = _canonicalize_axis(ax1, m.ndim)
   ax2 = _canonicalize_axis(ax2, m.ndim)
@@ -1025,6 +1034,7 @@ def angle(z):
 
 @_wraps(np.diff)
 def diff(a, n=1, axis=-1,):
+  a, = _ensure_device_array(a)
   if not isinstance(a, ndarray) or a.ndim == 0:
     return a
   if n == 0:
@@ -1056,12 +1066,15 @@ loses precision.
 
 @_wraps(np.ediff1d, lax_description=_EDIFF1D_DOC)
 def ediff1d(ary, to_end=None, to_begin=None):
-  ary = ravel(asarray(ary))
+  ary, = _ensure_device_array(ary)
+  ary = ravel(ary)
   result = lax.sub(ary[1:], ary[:-1])
   if to_begin is not None:
-    result = concatenate((ravel(asarray(to_begin, dtype=ary.dtype)), result))
+    to_begin, = _ensure_device_array(to_begin)
+    result = concatenate((ravel(to_begin.astype(ary.dtype)), result))
   if to_end is not None:
-    result = concatenate((result, ravel(asarray(to_end, dtype=ary.dtype))))
+    to_end, = _ensure_device_array(to_end)
+    result = concatenate((result, ravel(to_end.astype(ary.dtype))))
   return result
 
 
@@ -1187,9 +1200,9 @@ and out-of-bounds indices are clipped.
 
 @_wraps(np.unravel_index, lax_description=_UNRAVEL_INDEX_DOC)
 def unravel_index(indices, shape):
-  indices = asarray(indices)
-  sizes = pad(shape, (0, 1), constant_values=1)
-  cumulative_sizes = cumprod(sizes[::-1])[::-1]
+  indices, = _ensure_device_array(indices)
+  sizes = np.pad(shape, (0, 1), constant_values=1).astype(int)
+  cumulative_sizes = np.cumprod(sizes[::-1])[::-1]
   total_size = cumulative_sizes[0]
   # Clip so raveling and unraveling an oob index will not change the behavior
   clipped_indices = clip(indices, -total_size, total_size - 1)
@@ -1242,7 +1255,7 @@ def moveaxis(a, source, destination):
 
 @_wraps(np.isclose)
 def isclose(a, b, rtol=1e-05, atol=1e-08, equal_nan=False):
-  a, b = _promote_args("isclose", asarray(a), asarray(b))
+  a, b = _promote_args("isclose", a, b)
   dtype = _dtype(a)
   if issubdtype(dtype, inexact):
     if issubdtype(dtype, complexfloating):
@@ -1413,8 +1426,9 @@ successfully.
 @_wraps(np.where, update_doc=False, lax_description=_WHERE_DOC)
 def where(condition, x=None, y=None):
   if x is None and y is None:
-    return nonzero(asarray(condition))
+    return nonzero(condition)
   else:
+    condition, x, y = _ensure_device_array(condition, x, y)
     return _where(condition, x, y)
 
 
@@ -1472,7 +1486,7 @@ def broadcast_arrays(*args):
 The JAX version does not necessarily return a view of the input.
 """)
 def broadcast_to(arr, shape):
-  arr = arr if isinstance(arr, ndarray) else array(arr)
+  arr, = _ensure_device_array(arr)
   shape = canonicalize_shape(shape)  # check that shape is concrete
   arr_shape = _shape(arr)
   if arr_shape == shape:
@@ -1664,6 +1678,8 @@ def _make_reduction(np_fun, op, init_val, preproc=None, bool_op=None,
       msg = ("jax.numpy reductions won't accept lists and tuples in future "
              "versions, only scalars and ndarrays")
       warnings.warn(msg, category=FutureWarning)
+    # TODO(jakevdp): remove the above warning & use ensure_devicearray
+    # a, = _ensure_devicearray(a)
     a = a if isinstance(a, ndarray) else asarray(a)
     a = preproc(a) if preproc else a
     dims = _reduction_dims(a, axis)
@@ -1737,7 +1753,7 @@ def mean(a, axis=None, dtype=None, out=None, keepdims=False):
 
 @_wraps(np.average)
 def average(a, axis=None, weights=None, returned=False):
-  a = asarray(a)
+  a, = _ensure_device_array(a)
 
   if weights is None: # Treat all weights as 1
     avg = mean(a, axis=axis)
@@ -1746,7 +1762,7 @@ def average(a, axis=None, weights=None, returned=False):
     else:
       weights_sum = full_like(avg, a.shape[axis], dtype=avg.dtype)
   else:
-    weights = asarray(weights)
+    weights, = _ensure_device_array(weights)
 
     if issubdtype(a.dtype, inexact):
       out_dtype = result_type(a.dtype, weights.dtype)
@@ -2104,7 +2120,6 @@ def _pad_edge(array, pad_width):
 
 @partial(jit, static_argnums=(1, 2))
 def _pad(array, pad_width, mode, constant_values):
-  array = asarray(array)
   nd = ndim(array)
   pad_width = np.broadcast_to(np.asarray(pad_width), (nd, 2))
   if np.any(pad_width < 0):
@@ -2128,6 +2143,7 @@ def _pad(array, pad_width, mode, constant_values):
 
 @_wraps(np.pad)
 def pad(array, pad_width, mode='constant', constant_values=0):
+  array, = _ensure_device_array(array)
   if isinstance(pad_width, list):
     pad_width = tuple(pad_width)
   return _pad(array, pad_width, mode, constant_values)
@@ -2456,8 +2472,8 @@ def linspace(start, stop, num=50, endpoint=True, retstep=False, dtype=None,
 
   dtype = dtype or result_type(start, stop, dtypes.canonicalize_dtype(float_))
   computation_dtype = promote_types(dtype, dtypes.canonicalize_dtype(float_))
-  start = asarray(start, dtype=computation_dtype)
-  stop = asarray(stop, dtype=computation_dtype)
+  start = _ensure_device_array(start)[0].astype(computation_dtype)
+  stop = _ensure_device_array(stop)[0].astype(computation_dtype)
 
   bounds_shape = list(lax.broadcast_shapes(shape(start), shape(stop)))
   broadcast_start = broadcast_to(start, bounds_shape)
@@ -2500,8 +2516,8 @@ def logspace(start, stop, num=50, endpoint=True, base=10.0, dtype=None, axis=0):
   """Implementation of logspace differentiable in start and stop args."""
   dtype = dtype or result_type(start, stop, dtypes.canonicalize_dtype(float_))
   computation_dtype = promote_types(dtype, dtypes.canonicalize_dtype(float_))
-  start = asarray(start, dtype=computation_dtype)
-  stop = asarray(stop, dtype=computation_dtype)
+  start = _ensure_device_array(start)[0].astype(computation_dtype)
+  stop = _ensure_device_array(stop)[0].astype(computation_dtype)
   lin = linspace(start, stop, num,
                  endpoint=endpoint, retstep=False, dtype=None, axis=axis)
   return lax.convert_element_type(power(base, lin), dtype)
@@ -2512,8 +2528,8 @@ def geomspace(start, stop, num=50, endpoint=True, dtype=None, axis=0):
   """Implementation of geomspace differentiable in start and stop args."""
   dtype = dtype or result_type(start, stop, dtypes.canonicalize_dtype(float_))
   computation_dtype = promote_types(dtype, dtypes.canonicalize_dtype(float_))
-  start = asarray(start, dtype=computation_dtype)
-  stop = asarray(stop, dtype=computation_dtype)
+  start = _ensure_device_array(start)[0].astype(computation_dtype)
+  stop = _ensure_device_array(stop)[0].astype(computation_dtype)
   # follow the numpy geomspace convention for negative and complex endpoints
   signflip = 1 - (1 - sign(real(start))) * (1 - sign(real(stop))) // 2
   res = signflip * logspace(log10(signflip * start),
@@ -2862,7 +2878,8 @@ def polyder(p, m=1):
 
 @_wraps(np.trim_zeros)
 def trim_zeros(filt, trim='fb'):
-  nz = asarray(filt) == 0
+  filt, = _ensure_device_array(filt)
+  nz = filt == 0
   if all(nz):
     return empty(0, _dtype(filt))
   start = argmin(nz) if 'f' in trim.lower() else 0
@@ -3235,7 +3252,7 @@ def kron(a, b):
 
 @_wraps(np.vander)
 def vander(x, N=None, increasing=False):
-  x = asarray(x)
+  x, = _ensure_device_array(x)
   dtype = _dtype(x)
   if ndim(x) != 1:
     raise ValueError("x must be a one-dimensional array")
@@ -3359,13 +3376,12 @@ def msort(a):
 
 @partial(jit, static_argnums=(2,))
 def _roll(a, shift, axis):
-  a = asarray(a)
+  a, shift = _ensure_device_array(a, shift)
   a_shape = shape(a)
   if axis is None:
     return lax.reshape(roll(ravel(a), shift, axis=0), a_shape)
 
   a_ndim = len(a_shape)
-  shift = asarray(shift)
   axis = np.asarray(axis)
   b_shape = lax.broadcast_shapes(shift.shape, axis.shape, (1,))
   if len(b_shape) != 1:
@@ -3383,11 +3399,13 @@ def _roll(a, shift, axis):
 
 @_wraps(np.roll)
 def roll(a, shift, axis=None):
+  a, = _ensure_device_array(a)
   return _roll(a, shift, axis)
 
 
 @_wraps(np.rollaxis)
 def rollaxis(a, axis, start=0):
+  a, = _ensure_device_array(a)
   a_ndim = ndim(a)
   if not (-a_ndim <= axis < a_ndim):
     raise ValueError(f"axis={axis} is out of bounds for array of dimension {a_ndim}")
@@ -3404,7 +3422,7 @@ def rollaxis(a, axis, start=0):
 
 @_wraps(np.packbits)
 def packbits(a, axis=None, bitorder='big'):
-  a = asarray(a)
+  a, = _ensure_device_array(a)
   if not (issubdtype(dtype(a), integer) or issubdtype(dtype(a), bool_)):
     raise TypeError('Expected an input array of integer or boolean data type')
   if bitorder not in ['little', 'big']:
@@ -3429,12 +3447,12 @@ def packbits(a, axis=None, bitorder='big'):
 
 @_wraps(np.unpackbits)
 def unpackbits(a, axis=None, count=None, bitorder='big'):
-  a = asarray(a)
+  a, = _ensure_device_array(a)
   if dtype(a) != uint8:
     raise TypeError("Expected an input array of unsigned byte data type")
   if bitorder not in ['little', 'big']:
     raise ValueError("'order' must be either 'little' or 'big'")
-  bits = asarray(1) << arange(8, dtype='uint8')
+  bits = 1 << arange(8, dtype='uint8')
   if bitorder == 'big':
     bits = bits[::-1]
   if axis is None:
@@ -3451,8 +3469,7 @@ def take(a, indices, axis=None, out=None, mode=None):
   if out:
     raise NotImplementedError("The 'out' argument to np.take is not supported.")
 
-  a = asarray(a)
-  indices = asarray(indices)
+  a, indices = _ensure_device_array(a, indices)
 
   if axis is None:
     a = ravel(a)
@@ -3570,8 +3587,7 @@ def _unique1d_sorted_mask(ar, optional_indices=False):
   """
   Helper function for unique which is jit-able
   """
-
-  ar = asarray(ar).flatten()
+  ar = ar.flatten()
 
   if optional_indices:
     perm = ar.argsort()
@@ -3593,7 +3609,6 @@ def _unique1d(ar, return_index=False, return_inverse=False,
   """
   Find the unique elements of an array, ignoring shape.
   """
-
   optional_indices = return_index or return_inverse
 
   if optional_indices:
@@ -3617,6 +3632,7 @@ def _unique1d(ar, return_index=False, return_inverse=False,
 @_wraps(np.unique)
 def unique(ar, return_index=False, return_inverse=False,
            return_counts=False, axis=None):
+  ar, = _ensure_device_array(ar)
 
   if iscomplexobj(ar):
     raise NotImplementedError(
@@ -3638,7 +3654,7 @@ def _rewriting_take(arr, idx):
   # Computes arr[idx].
   # All supported cases of indexing can be implemented as an XLA gather,
   # followed by an optional reverse and broadcast_in_dim.
-  arr = asarray(arr)
+  arr, = _ensure_device_array(arr)
   treedef, static_idx, dynamic_idx = _split_index_for_jit(idx)
   return _gather(arr, treedef, static_idx, dynamic_idx)
 
@@ -4134,12 +4150,14 @@ def cov(m, y=None, rowvar=True, bias=False, ddof=None, fweights=None,
 
   w = None
   if fweights is not None:
+    fweights, = _ensure_device_array(fweights)
     if np.ndim(fweights) > 1:
       raise RuntimeError("cannot handle multidimensional fweights")
     if np.shape(fweights)[0] != X.shape[1]:
       raise RuntimeError("incompatible numbers of samples and fweights")
-    w = asarray(fweights)
+    w = fweights
   if aweights is not None:
+    aweights, = _ensure_device_array(aweights)
     if np.ndim(aweights) > 1:
       raise RuntimeError("cannot handle multidimensional aweights")
     if np.shape(aweights)[0] != X.shape[1]:
@@ -4190,6 +4208,7 @@ def quantile(a, q, axis=None, out=None, overwrite_input=False,
     msg = ("jax.numpy.quantile does not support overwrite_input=True or "
            "out != None")
     raise ValueError(msg)
+  a, q = _promote_args_inexact("quantile", a, q)
   return _quantile(a, q, axis, interpolation, keepdims, False)
 
 @_wraps(getattr(np, "nanquantile", None))
@@ -4199,6 +4218,7 @@ def nanquantile(a, q, axis=None, out=None, overwrite_input=False,
     msg = ("jax.numpy.nanquantile does not support overwrite_input=True or "
            "out != None")
     raise ValueError(msg)
+  a, q = _promote_args_inexact("quantile", a, q)
   return _quantile(a, q, axis, interpolation, keepdims, True)
 
 
@@ -4207,8 +4227,6 @@ def _quantile(a, q, axis, interpolation, keepdims, squash_nans):
   if interpolation not in ["linear", "lower", "higher", "midpoint", "nearest"]:
     raise ValueError("interpolation can only be 'linear', 'lower', 'higher', "
                      "'midpoint', or 'nearest'")
-  a = asarray(a, dtype=promote_types(_dtype(a), float32))
-  q = asarray(q, dtype=promote_types(_dtype(q), float32))
   if axis is None:
     a = ravel(a)
     axis = 0
@@ -4324,8 +4342,7 @@ def searchsorted(a, v, side='left', sorter=None):
     raise ValueError(f"{side!r} is an invalid value for keyword 'side'")
   if sorter is not None:
     raise NotImplementedError("sorter is not implemented")
-  a = asarray(a)
-  v = asarray(v)
+  a, v = _ensure_device_array(a, v)
   if ndim(a) != 1:
     raise ValueError("a should be 1-dimensional")
   return _searchsorted(a, v, side)
@@ -4350,7 +4367,9 @@ See the :func:`jax.lax.switch` documentation for more information.
 
 @_wraps(np.piecewise, lax_description=_PIECEWISE_DOC)
 def piecewise(x, condlist, funclist, *args, **kw):
-  condlist = array(condlist, dtype=bool_)
+  x, = _ensure_device_array(x)
+  # condlist allows list of condition arrays; convert to N-dimensional array.
+  condlist = asarray(condlist, dtype=bool_)
   nc, nf = len(condlist), len(funclist)
   if nf == nc + 1:
     funclist = funclist[-1:] + funclist[:-1]
@@ -4371,14 +4390,16 @@ def piecewise(x, condlist, funclist, *args, **kw):
 @_wraps(np.percentile)
 def percentile(a, q, axis=None, out=None, overwrite_input=False,
                interpolation="linear", keepdims=False):
-  q = true_divide(asarray(q), float32(100.0))
+  a, q = _ensure_device_array(a, q)
+  q = true_divide(q, float32(100.0))
   return quantile(a, q, axis=axis, out=out, overwrite_input=overwrite_input,
                   interpolation=interpolation, keepdims=keepdims)
 
 @_wraps(np.nanpercentile)
 def nanpercentile(a, q, axis=None, out=None, overwrite_input=False,
                   interpolation="linear", keepdims=False):
-  q = true_divide(asarray(q), float32(100.0))
+  a, q = _ensure_device_array(a, q)
+  q = true_divide(q, float32(100.0))
   return nanquantile(a, q, axis=axis, out=out, overwrite_input=overwrite_input,
                      interpolation=interpolation, keepdims=keepdims)
 

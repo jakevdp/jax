@@ -14,6 +14,12 @@
 
 import re
 
+import numpy as np
+
+from .. import core, dtypes
+from ..interpreters.xla import DeviceArray
+from ..lax.lax import _device_put_raw
+
 
 def update_numpydoc(docstr, fun, op):
   '''Transforms the numpy docstring to remove references of
@@ -95,3 +101,14 @@ def _wraps(fun, update_doc=True, lax_description=""):
     finally:
       return op
   return wrap
+
+
+def _ensure_device_array(*args):
+  def _to_device_array(arg):
+    if isinstance(arg, (DeviceArray, core.Tracer)):
+      return arg
+    elif dtypes.is_python_scalar(arg) or isinstance(arg, (np.ndarray, np.generic)):
+      return _device_put_raw(arg)
+    else:
+      raise TypeError(f"Expected DeviceArray, scalar, or ndarray; got {type(arg)}")
+  return tuple(_to_device_array(arg) for arg in args)
