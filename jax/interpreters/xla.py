@@ -77,11 +77,9 @@ _scalar_types = dtypes.python_scalar_dtypes.keys()
 def _make_unit(c):
   return xb.constant(c, np.zeros((), dtype=np.dtype('bool')))
 def _make_abstract_unit(_):
-  return (xc.Shape.array_shape(np.dtype('bool'), ()),)
+  return ()
 def _device_put_unit(_, device):
-  backend = xb.get_device_backend(device)
-  return (backend.buffer_from_pyval(np.zeros((), dtype=np.dtype('bool')),
-                                    device),)
+  return ()
 def _make_array_shape(a):
   return (xc.Shape.array_shape(a.dtype, a.shape),)
 
@@ -111,7 +109,7 @@ def array_result_handler(device: Optional[Device], aval: core.ShapedArray):
   return partial(DeviceArray, raise_to_shaped(aval), device, lazy.array(aval.shape))
 
 xla_result_handlers: Dict[Type[core.AbstractValue], Callable[..., Callable]] = {
-    core.AbstractUnit: lambda _, __: (lambda _: core.unit),
+    core.AbstractUnit: lambda _, __: (lambda: core.unit),
     ShapedArray: array_result_handler,
     ConcreteArray: array_result_handler,
 }
@@ -408,7 +406,7 @@ def jaxpr_subcomp(c, jaxpr, backend, axis_env, consts, name_stack, *args):
       env[v] = tuple(it.islice(nodes, v.aval._num_buffers))
 
   env = {}
-  write([core.unitvar], [_make_unit(c)])
+  write([core.unitvar], [])
   write(jaxpr.constvars, consts)
   write(jaxpr.invars, args)
   for eqn in jaxpr.eqns:

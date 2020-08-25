@@ -213,7 +213,7 @@ class DropVar(Var):
   suffix = ''
   def __init__(self): pass
   @property
-  def aval(self): return abstract_unit
+  def aval(self): return get_aval(False)  # TODO(jakevdp): better aval here.
   def __repr__(self): return '_'
 dropvar = DropVar()
 
@@ -772,8 +772,7 @@ class Bot(AbstractValue): pass
 bot = Bot()
 
 class AbstractUnit(AbstractValue):
-  # TODO(jakevdp): possible to set zero buffers?
-  # _num_buffers = 0
+  _num_buffers = 0
   def join(self, other):
     if not skip_checks:
       assert other is abstract_unit, other
