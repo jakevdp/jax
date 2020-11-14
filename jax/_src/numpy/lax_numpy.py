@@ -1443,13 +1443,12 @@ def interp(x, xp, fp, left=None, right=None, period=None):
 In the JAX version, the `assume_unique` argument is not referenced.
 """)
 def in1d(ar1, ar2, assume_unique=False, invert=False):
-  # TODO(vanderplas): use sorting-based approach for larger inputs.
   ar1 = ravel(ar1)
-  ar2 = ravel(ar2)
-  if invert:
-    return (ar1[:, None] != ar2).all(-1)
-  else:
-    return (ar1[:, None] == ar2).any(-1)
+  ar2 = sort(ravel(ar2))
+  if not ar2.size:
+    return ones_like(ar1, bool) if invert else zeros_like(ar1, bool)
+  ind = searchsorted(ar2, ar1)
+  return ar1 != ar2[ind] if invert else ar1 == ar2[ind]
 
 @_wraps(np.setdiff1d, lax_description="""
 In the JAX version, the `assume_unique` argument is not referenced.
