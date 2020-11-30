@@ -270,8 +270,10 @@ def _promote_dtypes(*args):
   if len(args) < 2:
     return args
   else:
-    to_dtype = result_type(*args)
-    return [lax.convert_element_type(x, to_dtype) for x in args]
+    to_dtype_raw = dtypes._result_type_raw(*args)
+    weak_type = _any(to_dtype_raw is t for t in dtypes._weak_types)
+    to_dtype = dtypes.canonicalize_dtype(to_dtype_raw)
+    return [lax.set_weak_type(lax.convert_element_type(x, to_dtype), weak_type) for x in args]
 
 def _promote_dtypes_inexact(*args):
   """Convenience function to apply Numpy argument dtype promotion.
@@ -2505,6 +2507,18 @@ def atleast_3d(*arys):
     return [atleast_3d(arr) for arr in arys]
 
 
+def _has_dtype(obj):
+  try:
+    dtype = obj.dtype
+  except AttributeError:
+    return False
+  try:
+    np.result_type(dtype)
+  except TypeError:
+    return False
+  return True
+
+
 @_wraps(np.array)
 def array(object, dtype=None, copy=True, order="K", ndmin=0):
   if order is not None and order != "K":
@@ -2513,7 +2527,11 @@ def array(object, dtype=None, copy=True, order="K", ndmin=0):
   dtype = dtype and dtypes.canonicalize_dtype(dtype)
 
   if _can_call_numpy_array(object):
-    object = _np_array(object, dtype=dtype, ndmin=ndmin)
+    weak_type = dtype is None and not _has_dtype(object)
+    object = _np_array(object, dtype=dtype, ndmin=ndmin, copy=False)
+  else:
+    weak_type = dtype is None and dtypes.is_weakly_typed(object)
+
   assert type(object) not in dtypes.python_scalar_dtypes
 
   if type(object) is np.ndarray:
@@ -2542,7 +2560,9 @@ def array(object, dtype=None, copy=True, order="K", ndmin=0):
     raise TypeError("Unexpected input type for array: {}".format(type(object)))
 
   if dtype and _dtype(out) != dtype:
-    out = lax.convert_element_type(out, dtype)
+    out = lax.convert_element_type(out, dtype or _dtype(out))
+  if weak_type != dtypes.is_weakly_typed(out):
+    out = lax.set_weak_type(out, weak_type)
 
   if ndmin > ndim(out):
     out = lax.broadcast(out, (1,) * (ndmin - ndim(out)))
