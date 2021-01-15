@@ -8,6 +8,7 @@ sphinx-autodoc-typehints <1.11
 
 jaxlib
 ipykernel
+IPython
 nbsphinx
 myst-parser[sphinx]
 # The next packages are for notebooks
