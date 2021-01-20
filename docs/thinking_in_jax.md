@@ -9,6 +9,22 @@ kernelspec:
 
 # How to think in JAX
 
+```{code-cell}
+:tags: [hide-cell]
+# Configure ipython to hide long tracebacks.
+import sys
+ipython = get_ipython()
+
+def minimal_traceback(*args, **kwargs):
+  etype, value, tb = sys.exc_info()
+  value.__cause__ = None  # suppress chained exceptions
+  stb = ipython.InteractiveTB.structured_traceback(etype, value, tb)
+  del stb[3:-1]
+  return ipython._showtraceback(etype, value, stb)
+
+ipython.showtraceback = minimal_traceback
+```
+
 JAX provides a simple and powerful API for writing accelerated numerical code,
 but working effectively in JAX sometimes requires extra consideration.
 This document is meant to help build a ground-up understanding of how JAX operates,
@@ -63,10 +79,10 @@ to be used interchangeably in many places.
 However, there is one important difference between JAX and NumPy arrays: JAX arrays are immutable,
 meaning that once created their contents cannot be changed.
 
-Here is an example of mutating an array in Numpy:
+Here is an example of mutating an array in NumPy:
 
 ```{code-cell}
-x = np.arange(10)  # Numpy: mutable arrays
+x = np.arange(10)  # NumPy: mutable arrays
 x[0] = 10
 x
 ```

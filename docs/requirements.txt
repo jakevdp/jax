@@ -9,8 +9,8 @@ sphinx-autodoc-typehints <1.11
 jaxlib
 ipykernel
 IPython
+myst-parser==0.13.1  # Pinned due to https://github.com/executablebooks/MyST-Parser/issues/299
 myst-nb
-myst-parser[sphinx]
 # The next packages are for notebooks
 matplotlib
 sklearn
