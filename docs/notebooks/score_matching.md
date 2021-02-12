@@ -12,11 +12,12 @@ kernelspec:
   name: python3
 ---
 
+```{open-in-colab}
+```
+
 +++ {"colab_type": "text", "id": "U6IRW9a8G6TB"}
 
 # Generative Modeling by Estimating Gradients of Data Distribution in JAX
-
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.sandbox.google.com/github/google/jax/blob/master/docs/notebooks/score_matching.ipynb)
 
 In this notebook we'll implement __Generative Modeling by Estimating Gradients of the Data Distribution__ [[arxiv]](https://arxiv.org/abs/1907.05600).
 

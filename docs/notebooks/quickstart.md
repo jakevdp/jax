@@ -12,11 +12,12 @@ kernelspec:
   name: python3
 ---
 
+```{open-in-colab}
+```
+
 +++ {"colab_type": "text", "id": "xtWX4x9DCF5_"}
 
 # JAX Quickstart
-
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.sandbox.google.com/github/google/jax/blob/master/docs/notebooks/quickstart.ipynb)
 
 **JAX is NumPy on the CPU, GPU, and TPU, with great automatic differentiation for high-performance machine learning research.**
 

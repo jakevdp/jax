@@ -12,11 +12,12 @@ kernelspec:
   name: python3
 ---
 
+```{open-in-colab}
+```
+
 +++ {"id": "Ic1reB4s6vu1"}
 
 # The Autodiff Cookbook
-
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.sandbox.google.com/github/google/jax/blob/master/docs/notebooks/autodiff_cookbook.ipynb)
 
 *alexbw@, mattjj@*  
 
@@ -691,7 +692,6 @@ assert jnp.allclose(loop_vs, vmap_vs), 'Vmap and non-vmapped Jacobian-Matrix pro
 +++ {"id": "MXFEFBDz6vvL"}
 
 ### The implementation of `jacfwd` and `jacrev`
-
 
 +++ {"id": "ZAgUb6sp8bf7"}
 

@@ -12,6 +12,9 @@ kernelspec:
   name: python3
 ---
 
+```{open-in-colab}
+```
+
 +++ {"colab_type": "text", "id": "18AF5Ab4p6VL"}
 
 **Copyright 2018 Google LLC.**
@@ -35,8 +38,6 @@ limitations under the License.
 +++ {"colab_type": "text", "id": "B_XlLLpcWjkA"}
 
 # Training a Simple Neural Network, with tensorflow/datasets Data Loading
-
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.sandbox.google.com/github/google/jax/blob/master/docs/notebooks/neural_network_with_tfds_data.ipynb)
 
 _Forked from_ `neural_network_and_data_loading.ipynb`
 

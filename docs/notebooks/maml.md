@@ -11,11 +11,12 @@ kernelspec:
   name: python3
 ---
 
+```{open-in-colab}
+```
+
 +++ {"id": "oDP4nK_Zgyg-", "colab_type": "text"}
 
 # MAML Tutorial with JAX
-
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.sandbox.google.com/github/google/jax/blob/master/docs/notebooks/maml.ipynb)
 
 Eric Jang
 

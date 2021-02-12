@@ -12,11 +12,12 @@ kernelspec:
   name: python3
 ---
 
+```{open-in-colab}
+```
+
 +++ {"colab_type": "text", "id": "hjM_sV_AepYf"}
 
 # 🔪 JAX - The Sharp Bits 🔪
-
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.sandbox.google.com/github/google/jax/blob/master/docs/notebooks/Common_Gotchas_in_JAX.ipynb)
 
 +++ {"colab_type": "text", "id": "4k5PVzEo2uJO"}
 

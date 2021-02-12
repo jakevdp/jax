@@ -12,11 +12,12 @@ kernelspec:
   name: python3
 ---
 
+```{open-in-colab}
+```
+
 +++ {"colab_type": "text", "id": "18AF5Ab4p6VL"}
 
 # Training a Simple Neural Network, with PyTorch Data Loading
-
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.sandbox.google.com/github/google/jax/blob/master/docs/notebooks/Neural_Network_and_Data_Loading.ipynb)
 
 **Copyright 2018 Google LLC.**
 
