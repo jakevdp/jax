@@ -14,6 +14,7 @@
 
 import jax.numpy as jnp
 from jax import tree_util
+from jax.interpreters import xla
 
 #--------------------------------------------------------------------------------
 # Sparse Vector definition
@@ -24,12 +25,15 @@ class SparseVector:
   def __init__(self, data, indices=None, shape=None, dtype=None):
     if indices is None:
         assert data.ndim == 1
-        indices = jnp.nonzero(data)
+        indices = jnp.nonzero(data)[0]
         data = data[indices]
     self.data = jnp.asarray(data, dtype)
     self.indices = jnp.asarray(indices)
-    self.shape = tuple(shape) if shape is not None else (self.indices.max() + 1,)
+    self.shape = tuple(shape) if shape is not None else (int(self.indices.max()) + 1,)
     assert len(self.shape) == 1
+    assert self.data.ndim == 1
+    assert self.data.ndim == self.indices.ndim
+    assert jnp.issubdtype(self.indices.dtype, jnp.integer)
 
   @property
   def dtype(self):
@@ -57,21 +61,28 @@ class SparseVector:
 
 # Some Primitives
 from jax import core
+from jax.interpreters import xla
 
 
 def axpyi(a, x, y):
-  return axpyi_p.bind(a, x, y)
+  return axpyi_p.bind(a, x.data, x.indices, y)
 
-def _axpyi_abstract_eval(*args):
-  breakpoint()
+def _axpyi_abstract_eval(a, x_data, x_indices, y):
+  assert a.dtype == x_data.dtype
+  assert y.dtype == x_data.dtype
+  assert jnp.issubdtype(x_indices.dtype, jnp.integer)
+  assert x_data.shape == x_indices.shape
+  assert a.ndim == 0
+  return y
 
-def _axpyi_impl(a, x, y):
-  return y.at[x.indices].add(a * x.data)
+def _axpyi_impl(a, x_data, x_indices, y):
+  return y.at[x_indices].add(a * x_data)
 
 
 axpyi_p = core.Primitive('axpyi')
 axpyi_p.def_abstract_eval(_axpyi_abstract_eval)
 axpyi_p.def_impl(_axpyi_impl)
+xla.translations[axpyi_p] = xla.lower_fun(_axpyi_impl, multiple_results=False)
 
 
 if __name__ == '__main__':
@@ -79,7 +90,6 @@ if __name__ == '__main__':
 
   vec = SparseVector(jnp.array([0, 1, 0, 2, 0, 0, 3], dtype=float))
   print(vec)
-  # print(tree_util.tree_flatten(vec))
 
   y = jnp.ones(vec.shape)
   print(axpyi(3.0, vec, y))
