@@ -44,6 +44,7 @@ from jax.lib import cusparse
 from jax.lib import xla_bridge
 from jax.lib import xla_client
 import jax.numpy as jnp
+from jax._src.util import safe_zip
 import numpy as np
 
 xb = xla_bridge
@@ -612,3 +613,174 @@ class COO(JAXSparse):
 
   def tree_flatten(self):
     return (self.data, self.row, self.col), {"shape": self.shape}
+
+
+class AbstractSparseArray(core.ShapedArray):
+  _num_buffers: int = 3  # Can this be variable?
+  buf_avals: Tuple[core.ShapedArray, ...]
+  index_dtype: Any
+  nnz: int
+  format: str
+
+  def __init__(self, shape, dtype, index_dtype, nnz, format="COO", weak_type=False,
+               named_shape={}):
+    # TODO: generalize to different dimensions
+    assert len(shape) == 2
+
+    super().__init__(shape, dtype, weak_type=weak_type, named_shape=named_shape)
+    self.index_dtype = index_dtype
+    self.nnz = nnz
+    self.format = format
+
+    if format == "COO":
+      self.buf_avals = (
+        core.ShapedArray((nnz,), dtype, weak_type),
+      ) + tuple(
+        core.ShapedArray((nnz,), index_dtype)
+        for i in range(len(shape))
+      )
+    else:
+      raise NotImplementedError(f"format={format}")
+
+
+class ConcreteSparseArray(AbstractSparseArray):
+  pass
+
+class SparseArray:
+  """General SparseArray class with multi-buffer jaxpr representations."""
+  aval: AbstractSparseArray
+  _bufs: Tuple[Any, ...]
+
+  shape = property(lambda self: self.aval.shape)
+  dtype = property(lambda self: self.aval.dtype)
+  nnz = property(lambda self: self.aval.nnz)
+  format = property(lambda self: self.aval.format)
+
+  def __init__(self, aval, bufs):
+    self.aval = aval
+    self._bufs = bufs
+
+  def __repr__(self):
+    return f"{self.__class__.__name__}({self.dtype}{list(self.shape)}, nnz={self.nnz}, format={self.format!r})"
+
+
+def sparse_array_result_handler(device, aval):
+  def build_sparse_array(bufs):
+    bufs = tuple(
+      xla.make_device_array(aval, device, buf)
+      for aval, buf in safe_zip(aval.buf_avals, bufs)
+    )
+    return SparseArray(aval, bufs)
+  return build_sparse_array
+
+def sparse_array_shape_handler(a):
+  return tuple(
+    xla.xc.Shape.array_shape(aval.dtype, aval.shape)
+    for aval in a.buf_avals
+  )
+
+def sparse_array_device_put_handler(a, device):
+  return tuple(
+    xla.xb.get_device_backend(device).buffer_from_pyval(buf, device)
+    for buf in a.bufs
+  )
+
+core.pytype_aval_mappings[SparseArray] = lambda x: x.aval
+core.raise_to_shaped_mappings[AbstractSparseArray] = lambda aval, _: aval
+xla.pytype_aval_mappings[SparseArray] = lambda x: x.aval
+xla.canonicalize_dtype_handlers[SparseArray] = lambda x: x
+xla.device_put_handlers[SparseArray] = sparse_array_device_put_handler
+xla.xla_result_handlers[AbstractSparseArray] = sparse_array_result_handler
+xla.xla_shape_handlers[AbstractSparseArray] = sparse_array_shape_handler
+
+# TODO: figure out multibuf constant handler??
+# def _sparse_array_constant_handler(c, val, canonicalize_types=True):
+#   return xops.Tuple(c, 
+#     [xb.constant(c, buf, canonicalize_types=canonicalize_types)
+#      for buf in val.bufs])
+# xb.register_constant_handler(SparseArray, _sparse_array_constant_handler)
+
+
+sparse_bufs_p = core.Primitive('sparse_bufs')
+sparse_bufs_p.multiple_results = True
+
+@sparse_bufs_p.def_impl
+def _sparse_bufs_impl(mat):
+  return mat._bufs
+
+@sparse_bufs_p.def_abstract_eval
+def _sparse_bufs_abstract_eval(mat):
+  return mat.buf_avals
+
+def _sparse_bufs_translation_rule(c, *bufs):
+  return xops.Tuple(c, bufs)
+
+xla.translations[sparse_bufs_p] = _sparse_bufs_translation_rule
+SparseArray.bufs = property(lambda self: sparse_bufs_p.bind(self))
+
+sparse_fromdense_p = core.Primitive("sparse_fromdense")
+
+def sparse_fromdense(mat, *, nnz, index_dtype=jnp.int32, format="COO"):
+  """Create COO-format sparse matrix from a dense matrix.
+
+  Args:
+    mat : array to be converted to COO.
+    nnz : number of nonzero entries in ``mat``
+    index_dtype : dtype of sparse indices
+    format : str
+
+  Returns:
+    spmat : SparseArray
+  """
+  mat = jnp.asarray(mat)
+  nnz = core.concrete_or_error(operator.index, nnz, "nnz argument of coo_fromdense()")
+  return sparse_fromdense_p.bind(mat, nnz=nnz, index_dtype=index_dtype, format=format)
+
+@sparse_fromdense_p.def_impl
+def _sparse_fromdense_impl(mat, *, nnz, index_dtype, format):
+  mat = jnp.asarray(mat)
+  assert mat.ndim == 2
+
+  row, col = jnp.nonzero(mat, size=nnz)
+  data = mat[row, col]
+
+  true_nonzeros = jnp.arange(nnz) < (mat != 0).sum()
+  data = jnp.where(true_nonzeros, data, 0)
+
+  aval = _sparse_fromdense_abstract_eval(mat, nnz=nnz, index_dtype=index_dtype, format=format)
+  return SparseArray(aval, (data, row, col))
+
+@sparse_fromdense_p.def_abstract_eval
+def _sparse_fromdense_abstract_eval(mat, *, nnz, index_dtype, format):
+  return AbstractSparseArray(mat.shape, mat.dtype, index_dtype, nnz, format=format)
+
+xla.translations_with_avals[sparse_fromdense_p] = xla.lower_fun(
+    _sparse_fromdense_impl, multiple_results=False, with_avals=True)
+
+
+sparse_todense_p = core.Primitive('sparse_todense')
+
+def sparse_todense(mat):
+  """Convert CSR-format sparse matrix to a dense matrix.
+
+  Args:
+    spmat : sparse array
+
+  Returns:
+    mat : array with specified shape and dtype matching ``data``
+  """
+  return sparse_todense_p.bind(mat)
+
+@sparse_todense_p.def_impl
+def _sparse_todense_impl(*args, **kwargs):
+  mat = args[0]
+  assert mat.format == "COO"
+  data, row, col = sparse_bufs_p.bind(mat)
+  return jnp.zeros(mat.shape, mat.dtype).at[row, col].add(data)
+
+@sparse_todense_p.def_abstract_eval
+def _sparse_todense_abstract_eval(mat):
+  return core.ShapedArray(mat.shape, mat.dtype)
+
+xla.translations_with_avals[sparse_todense_p] = xla.lower_fun(
+    _sparse_todense_impl, multiple_results=False, with_avals=True)
