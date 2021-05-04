@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import itertools
+import operator
 import unittest
 
 from absl.testing import absltest
@@ -315,6 +316,7 @@ class SparseObjectTest(jtu.JaxTestCase):
 
     self.assertAllClose(M @ x, Msp @ x, rtol=MATMUL_TOL)
 
+
 class GeneralSparseObjectTest(jtu.JaxTestCase):
   @parameterized.named_parameters(itertools.chain.from_iterable(
     jtu.cases_from_list(
@@ -327,7 +329,6 @@ class GeneralSparseObjectTest(jtu.JaxTestCase):
   def testToDense(self, shape, dtype, format):
     rng = rand_sparse(self.rng(), post=jnp.array)
     M = rng(shape, dtype)
-
     Msp = sparse_ops.SparseArray.fromdense(M, format=format)
 
     self.assertAllClose(Msp.todense(), M)
@@ -335,6 +336,26 @@ class GeneralSparseObjectTest(jtu.JaxTestCase):
     f = lambda M: M.todense()
     args_maker = lambda: [sparse_ops.SparseArray.fromdense(rng(shape, dtype))]
     self._CompileAndCheck(f, args_maker)
+
+  @parameterized.named_parameters(itertools.chain.from_iterable(
+    jtu.cases_from_list(
+      {"testcase_name": "_{}_{}".format(
+        jtu.format_shape_dtype_string(shape, dtype), format),
+       "shape": shape, "dtype": dtype, "format": format}
+      for shape in [(5,), (5, 8), (8, 5), (5, 5, 8)]
+      for dtype in jtu.dtypes.floating + jtu.dtypes.complex)
+    for format in ["COO"]))
+  def testMatMul(self, shape, dtype, format):
+    rng = rand_sparse(self.rng(), post=jnp.array)
+    rng_v = jtu.rand_default(self.rng())
+    M = rng(shape, dtype)
+    Msp = sparse_ops.SparseArray.fromdense(M, format=format)
+    v = rng(shape[-1:], dtype)
+    args_maker = lambda: [
+      sparse_ops.SparseArray.fromdense(rng(shape, dtype)), rng_v(shape[-1:], dtype)]
+
+    self.assertAllClose(M @ v, Msp @ v)
+    self._CompileAndCheck(operator.matmul, args_maker)
 
 
 if __name__ == "__main__":

@@ -37,6 +37,7 @@ from typing import Any, Tuple
 
 from jax import api
 from jax import core
+from jax import dtypes
 from jax import jit
 from jax import tree_util
 from jax.interpreters import xla
@@ -666,9 +667,11 @@ class SparseArray:
   @classmethod
   def fromdense(cls, mat, *, nnz=None, index_dtype=jnp.int32, format="COO"):
     assert cls is SparseArray
+    mat = jnp.asarray(mat)
     if nnz is None:
       nnz = (mat != 0).sum()
-    return sparse_fromdense(mat, nnz=nnz, index_dtype=index_dtype, format=format)
+    nnz = core.concrete_or_error(operator.index, nnz, "nnz argument of fromdense()")
+    return sparse_fromdense_p.bind(mat, nnz=nnz, index_dtype=index_dtype, format=format)
 
 
 def sparse_array_result_handler(device, aval):
@@ -707,6 +710,8 @@ xla.xla_shape_handlers[AbstractSparseArray] = sparse_array_shape_handler
 #      for buf in val.bufs])
 # xb.register_constant_handler(SparseArray, _sparse_array_constant_handler)
 
+#----------------------------------------------------------------------
+# sparse_bufs_p: buffer access primitive
 
 sparse_bufs_p = core.Primitive('sparse_bufs')
 sparse_bufs_p.multiple_results = True
@@ -725,23 +730,11 @@ def _sparse_bufs_translation_rule(c, *bufs):
 xla.translations[sparse_bufs_p] = _sparse_bufs_translation_rule
 SparseArray.bufs = property(lambda self: sparse_bufs_p.bind(self))
 
+
+#----------------------------------------------------------------------
+# sparse_fromdense_p: sparse-from-dense primitive
+
 sparse_fromdense_p = core.Primitive("sparse_fromdense")
-
-def sparse_fromdense(mat, *, nnz, index_dtype=jnp.int32, format="COO"):
-  """Create COO-format sparse matrix from a dense matrix.
-
-  Args:
-    mat : array to be converted to COO.
-    nnz : number of nonzero entries in ``mat``
-    index_dtype : dtype of sparse indices
-    format : str
-
-  Returns:
-    spmat : SparseArray
-  """
-  mat = jnp.asarray(mat)
-  nnz = core.concrete_or_error(operator.index, nnz, "nnz argument of coo_fromdense()")
-  return sparse_fromdense_p.bind(mat, nnz=nnz, index_dtype=index_dtype, format=format)
 
 @sparse_fromdense_p.def_impl
 def _sparse_fromdense_impl(mat, *, nnz, index_dtype, format):
@@ -764,25 +757,22 @@ xla.translations_with_avals[sparse_fromdense_p] = xla.lower_fun(
     _sparse_fromdense_impl, multiple_results=False, with_avals=True)
 
 
+#----------------------------------------------------------------------
+# sparse_todense_p: sparse-to-dense primitive
+
 sparse_todense_p = core.Primitive('sparse_todense')
 
-def sparse_todense(mat):
-  """Convert CSR-format sparse matrix to a dense matrix.
-
-  Args:
-    spmat : sparse array
-
-  Returns:
-    mat : array with specified shape and dtype matching ``data``
-  """
+def _sparse_todense(mat):
   return sparse_todense_p.bind(mat)
 
 @sparse_todense_p.def_impl
 def _sparse_todense_impl(*args, **kwargs):
   mat = args[0]
-  assert mat.format == "COO"
-  data, *ind = sparse_bufs_p.bind(mat)
-  return jnp.zeros(mat.shape, mat.dtype).at[tuple(ind)].add(data)
+  if mat.format == "COO":
+    data, *ind = sparse_bufs_p.bind(mat)
+    return jnp.zeros(mat.shape, mat.dtype).at[tuple(ind)].add(data)
+  else:
+    raise NotImplementedError(f"sparse_todense_impl for format={format}")
 
 @sparse_todense_p.def_abstract_eval
 def _sparse_todense_abstract_eval(mat):
@@ -791,5 +781,42 @@ def _sparse_todense_abstract_eval(mat):
 xla.translations_with_avals[sparse_todense_p] = xla.lower_fun(
     _sparse_todense_impl, multiple_results=False, with_avals=True)
 
-SparseArray.todense = sparse_todense
-AbstractSparseArray.todense = core.aval_method(sparse_todense)
+#----------------------------------------------------------------------
+# sparse_matmul_p: sparse matrix multiplication primitive
+
+sparse_matmul_p = core.Primitive("sparse_matmul")
+
+def _sparse_matmul(A, B):
+  return sparse_matmul_p.bind(A, B)
+
+@sparse_matmul_p.def_impl
+def _sparse_matmul_impl(A, B):
+  # Just matrix-vector product for now
+  B = jnp.asarray(B)
+  assert B.ndim == 1, "only matrix-vector multiplication currently supported."
+  if A.format == "COO":
+    data, *ind, col = sparse_bufs_p.bind(A)
+    out_shape = A.shape[:-1]
+    dB = data * B[col] if ind else data @ B[col]
+    return jnp.zeros(out_shape, dB.dtype).at[tuple(ind)].add(dB)
+  else:
+    raise NotImplementedError(f"sparse_matmul_impl for format={format}")
+
+@sparse_matmul_p.def_abstract_eval
+def _sparse_matmul_abstract_eval(A, B):
+  assert A.format == "COO"
+  assert isinstance(B, jnp.ndarray)
+  assert B.ndim == 1
+  dtype = dtypes.result_type(A.dtype, B.dtype)
+  return core.ShapedArray(A.shape[:-1] + B.shape, dtype)
+
+xla.translations_with_avals[sparse_matmul_p] = xla.lower_fun(
+    _sparse_matmul_impl, multiple_results=False, with_avals=True)
+
+# Add relevant methods to SparseArray and AbstractSparseArray
+
+SparseArray.todense = _sparse_todense
+SparseArray.__matmul__ = _sparse_matmul
+
+AbstractSparseArray.todense = core.aval_method(_sparse_todense)
+AbstractSparseArray._matmul = staticmethod(_sparse_matmul)
