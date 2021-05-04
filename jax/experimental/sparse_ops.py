@@ -614,19 +614,22 @@ class COO(JAXSparse):
   def tree_flatten(self):
     return (self.data, self.row, self.col), {"shape": self.shape}
 
+#============================================================================
+# General sparse array class as a valid JAX type.
+#
+# This uses a single jaxpr-compatible object with a flexible multi-buffer
+# representation to implement JAX arrays.
 
 class AbstractSparseArray(core.ShapedArray):
-  _num_buffers: int = 3  # Can this be variable?
   buf_avals: Tuple[core.ShapedArray, ...]
   index_dtype: Any
   nnz: int
   format: str
 
+  _num_buffers = property(lambda self: len(self.buf_avals))
+
   def __init__(self, shape, dtype, index_dtype, nnz, format="COO", weak_type=False,
                named_shape={}):
-    # TODO: generalize to different dimensions
-    assert len(shape) == 2
-
     super().__init__(shape, dtype, weak_type=weak_type, named_shape=named_shape)
     self.index_dtype = index_dtype
     self.nnz = nnz
@@ -642,9 +645,6 @@ class AbstractSparseArray(core.ShapedArray):
     else:
       raise NotImplementedError(f"format={format}")
 
-
-class ConcreteSparseArray(AbstractSparseArray):
-  pass
 
 class SparseArray:
   """General SparseArray class with multi-buffer jaxpr representations."""
@@ -662,6 +662,13 @@ class SparseArray:
 
   def __repr__(self):
     return f"{self.__class__.__name__}({self.dtype}{list(self.shape)}, nnz={self.nnz}, format={self.format!r})"
+
+  @classmethod
+  def fromdense(cls, mat, *, nnz=None, index_dtype=jnp.int32, format="COO"):
+    assert cls is SparseArray
+    if nnz is None:
+      nnz = (mat != 0).sum()
+    return sparse_fromdense(mat, nnz=nnz, index_dtype=index_dtype, format=format)
 
 
 def sparse_array_result_handler(device, aval):
@@ -739,16 +746,15 @@ def sparse_fromdense(mat, *, nnz, index_dtype=jnp.int32, format="COO"):
 @sparse_fromdense_p.def_impl
 def _sparse_fromdense_impl(mat, *, nnz, index_dtype, format):
   mat = jnp.asarray(mat)
-  assert mat.ndim == 2
 
-  row, col = jnp.nonzero(mat, size=nnz)
-  data = mat[row, col]
+  ind = jnp.nonzero(mat, size=nnz)
+  data = mat[ind]
 
   true_nonzeros = jnp.arange(nnz) < (mat != 0).sum()
   data = jnp.where(true_nonzeros, data, 0)
 
   aval = _sparse_fromdense_abstract_eval(mat, nnz=nnz, index_dtype=index_dtype, format=format)
-  return SparseArray(aval, (data, row, col))
+  return SparseArray(aval, (data, *ind))
 
 @sparse_fromdense_p.def_abstract_eval
 def _sparse_fromdense_abstract_eval(mat, *, nnz, index_dtype, format):
@@ -775,8 +781,8 @@ def sparse_todense(mat):
 def _sparse_todense_impl(*args, **kwargs):
   mat = args[0]
   assert mat.format == "COO"
-  data, row, col = sparse_bufs_p.bind(mat)
-  return jnp.zeros(mat.shape, mat.dtype).at[row, col].add(data)
+  data, *ind = sparse_bufs_p.bind(mat)
+  return jnp.zeros(mat.shape, mat.dtype).at[tuple(ind)].add(data)
 
 @sparse_todense_p.def_abstract_eval
 def _sparse_todense_abstract_eval(mat):
@@ -784,3 +790,6 @@ def _sparse_todense_abstract_eval(mat):
 
 xla.translations_with_avals[sparse_todense_p] = xla.lower_fun(
     _sparse_todense_impl, multiple_results=False, with_avals=True)
+
+SparseArray.todense = sparse_todense
+AbstractSparseArray.todense = core.aval_method(sparse_todense)
