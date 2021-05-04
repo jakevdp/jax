@@ -643,6 +643,20 @@ class AbstractSparseArray(core.ShapedArray):
         core.ShapedArray((nnz,), index_dtype)
         for i in range(len(shape))
       )
+    elif format == "CSR":
+      assert len(shape) == 2
+      self.buf_avals = (
+        core.ShapedArray((nnz,), dtype, weak_type),
+        core.ShapedArray((shape[0] + 1,), index_dtype),
+        core.ShapedArray((nnz,), index_dtype),
+      )
+    elif format == "CSC":
+      assert len(shape) == 2
+      self.buf_avals = (
+        core.ShapedArray((nnz,), dtype, weak_type),
+        core.ShapedArray((nnz,), index_dtype),
+        core.ShapedArray((shape[1] + 1,), index_dtype),
+      )
     else:
       raise NotImplementedError(f"format={format}")
 
@@ -740,17 +754,35 @@ sparse_fromdense_p = core.Primitive("sparse_fromdense")
 def _sparse_fromdense_impl(mat, *, nnz, index_dtype, format):
   mat = jnp.asarray(mat)
 
-  ind = jnp.nonzero(mat, size=nnz)
+  if format == "CSC":
+    ind = jnp.nonzero(mat.T, size=nnz)[::-1]
+  else:
+    ind = jnp.nonzero(mat, size=nnz)
   data = mat[ind]
 
   true_nonzeros = jnp.arange(nnz) < (mat != 0).sum()
   data = jnp.where(true_nonzeros, data, 0)
 
   aval = _sparse_fromdense_abstract_eval(mat, nnz=nnz, index_dtype=index_dtype, format=format)
+
+  if format == "COO":
+    pass
+  elif format == "CSR":
+    assert mat.ndim == 2
+    ind = _coo_to_csr(ind[0], mat.shape[0]), ind[1]
+  elif format == "CSC":
+    assert mat.ndim == 2
+    ind = ind[0], _coo_to_csr(ind[1], mat.shape[1])
+  else:
+    raise ValueError(f"Unrecognized format={format}")
   return SparseArray(aval, (data, *ind))
 
 @sparse_fromdense_p.def_abstract_eval
 def _sparse_fromdense_abstract_eval(mat, *, nnz, index_dtype, format):
+  if format not in ["COO", "CSR", "CSC"]:
+    raise ValueError(f"Unrecognized format={format}")
+  if format in ["CSR", "CSC"] and mat.ndim != 2:
+    raise ValueError(f"only two-dimensional arrays supported for format={format}")
   return AbstractSparseArray(mat.shape, mat.dtype, index_dtype, nnz, format=format)
 
 xla.translations_with_avals[sparse_fromdense_p] = xla.lower_fun(
@@ -767,11 +799,16 @@ def _sparse_todense(mat):
 
 @sparse_todense_p.def_impl
 def _sparse_todense_impl(mat):
+  data, *ind = sparse_bufs_p.bind(mat)
   if mat.format == "COO":
-    data, *ind = sparse_bufs_p.bind(mat)
-    return jnp.zeros(mat.shape, mat.dtype).at[tuple(ind)].add(data)
+    pass
+  elif mat.format == "CSR":
+    ind = _csr_to_coo(ind[0], mat.nnz), ind[1]
+  elif mat.format == "CSC":
+    ind = ind[0], _csr_to_coo(ind[1], mat.nnz)
   else:
     raise NotImplementedError(f"sparse_todense_impl for format={format}")
+  return jnp.zeros(mat.shape, mat.dtype).at[tuple(ind)].add(data)
 
 @sparse_todense_p.def_abstract_eval
 def _sparse_todense_abstract_eval(mat):
