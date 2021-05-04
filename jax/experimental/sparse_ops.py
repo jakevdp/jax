@@ -766,8 +766,7 @@ def _sparse_todense(mat):
   return sparse_todense_p.bind(mat)
 
 @sparse_todense_p.def_impl
-def _sparse_todense_impl(*args, **kwargs):
-  mat = args[0]
+def _sparse_todense_impl(mat):
   if mat.format == "COO":
     data, *ind = sparse_bufs_p.bind(mat)
     return jnp.zeros(mat.shape, mat.dtype).at[tuple(ind)].add(data)
@@ -791,7 +790,6 @@ def _sparse_matmul(A, B):
 
 @sparse_matmul_p.def_impl
 def _sparse_matmul_impl(A, B):
-  # Just matrix-vector product for now
   B = jnp.asarray(B)
   assert B.ndim == 1, "only matrix-vector multiplication currently supported."
   if A.format == "COO":
@@ -804,11 +802,13 @@ def _sparse_matmul_impl(A, B):
 
 @sparse_matmul_p.def_abstract_eval
 def _sparse_matmul_abstract_eval(A, B):
-  assert A.format == "COO"
   assert isinstance(B, jnp.ndarray)
-  assert B.ndim == 1
-  dtype = dtypes.result_type(A.dtype, B.dtype)
-  return core.ShapedArray(A.shape[:-1] + B.shape, dtype)
+  assert B.ndim == 1, "only matrix-vector multiplication currently supported."
+  if A.format == "COO":
+    dtype = dtypes.result_type(A.dtype, B.dtype)
+    return core.ShapedArray(A.shape[:-1], dtype)
+  else:
+    raise NotImplementedError(f"sparse_matmul_impl for format={format}")
 
 xla.translations_with_avals[sparse_matmul_p] = xla.lower_fun(
     _sparse_matmul_impl, multiple_results=False, with_avals=True)
