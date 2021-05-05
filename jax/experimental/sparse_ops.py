@@ -40,6 +40,7 @@ from jax import core
 from jax import dtypes
 from jax import jit
 from jax import tree_util
+from jax.interpreters import ad
 from jax.interpreters import xla
 from jax.lib import cusparse
 from jax.lib import xla_bridge
@@ -660,6 +661,11 @@ class AbstractSparseArray(core.ShapedArray):
     else:
       raise NotImplementedError(f"format={format}")
 
+  def at_least_vspace(self):
+    return AbstractSparseArray(self.shape, core.primal_dtype_to_tangent_dtype(self.dtype),
+                               self.index_dtype, self.nnz, self.format,
+                               self.weak_type, self.named_shape)
+
 
 class SparseArray:
   """General SparseArray class with multi-buffer jaxpr representations."""
@@ -816,8 +822,19 @@ def _sparse_todense_impl(mat):
 def _sparse_todense_abstract_eval(mat):
   return core.ShapedArray(mat.shape, mat.dtype)
 
+def _sparse_todense_jvp_rule(primals, tangents):
+  mat, = primals
+  mat_dot, = tangents
+  return mat.todense(), mat_dot.todense()
+
+def _sparse_todense_transpose_rule(ct, mat):
+  return (SparseArray.fromdense(ct, format=mat.aval.format),)
+
+
 xla.translations_with_avals[sparse_todense_p] = xla.lower_fun(
     _sparse_todense_impl, multiple_results=False, with_avals=True)
+ad.primitive_jvps[sparse_todense_p] = _sparse_todense_jvp_rule
+ad.primitive_transposes[sparse_todense_p] = _sparse_todense_transpose_rule
 
 #----------------------------------------------------------------------
 # sparse_matmul_p: sparse matrix multiplication primitive
