@@ -719,7 +719,7 @@ xla.xla_shape_handlers[AbstractSparseArray] = sparse_array_shape_handler
 
 # TODO: figure out multibuf constant handler??
 # def _sparse_array_constant_handler(c, val, canonicalize_types=True):
-#   return xops.Tuple(c, 
+#   return xops.Tuple(c,
 #     [xb.constant(c, buf, canonicalize_types=canonicalize_types)
 #      for buf in val.bufs])
 # xb.register_constant_handler(SparseArray, _sparse_array_constant_handler)
@@ -829,23 +829,28 @@ def _sparse_matmul(A, B):
 def _sparse_matmul_impl(A, B):
   B = jnp.asarray(B)
   assert B.ndim == 1, "only matrix-vector multiplication currently supported."
+  data, *ind = sparse_bufs_p.bind(A)
   if A.format == "COO":
-    data, *ind, col = sparse_bufs_p.bind(A)
-    out_shape = A.shape[:-1]
-    dB = data * B[col] if ind else data @ B[col]
-    return jnp.zeros(out_shape, dB.dtype).at[tuple(ind)].add(dB)
+    pass
+  elif A.format == "CSR":
+    ind = (_csr_to_coo(ind[0], A.nnz), ind[1])
+  elif A.format == "CSC":
+    ind = (ind[0], _csr_to_coo(ind[1], A.nnz))
   else:
     raise NotImplementedError(f"sparse_matmul_impl for format={format}")
+  *ind, col = ind
+  dB = data * B[col] if ind else data @ B[col]
+  out_shape = A.shape[:-1]
+  return jnp.zeros(out_shape, dB.dtype).at[tuple(ind)].add(dB)
 
 @sparse_matmul_p.def_abstract_eval
 def _sparse_matmul_abstract_eval(A, B):
   assert isinstance(B, jnp.ndarray)
   assert B.ndim == 1, "only matrix-vector multiplication currently supported."
-  if A.format == "COO":
-    dtype = dtypes.result_type(A.dtype, B.dtype)
-    return core.ShapedArray(A.shape[:-1], dtype)
-  else:
+  if A.format not in ["COO", "CSR", "CSC"]:
     raise NotImplementedError(f"sparse_matmul_impl for format={format}")
+  dtype = dtypes.result_type(A.dtype, B.dtype)
+  return core.ShapedArray(A.shape[:-1], dtype)
 
 xla.translations_with_avals[sparse_matmul_p] = xla.lower_fun(
     _sparse_matmul_impl, multiple_results=False, with_avals=True)

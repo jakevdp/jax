@@ -342,9 +342,9 @@ class GeneralSparseObjectTest(jtu.JaxTestCase):
       {"testcase_name": "_{}_{}".format(
         jtu.format_shape_dtype_string(shape, dtype), format),
        "shape": shape, "dtype": dtype, "format": format}
-      for shape in [(5,), (5, 8), (8, 5), (5, 5, 8)]
+      for shape in [(5, 8), (8, 5)] + ([(5,), (5, 5, 8)] if format == "COO" else [])
       for dtype in jtu.dtypes.floating + jtu.dtypes.complex)
-    for format in ["COO"]))
+    for format in ["COO", "CSR", "CSC"]))
   def testMatMul(self, shape, dtype, format):
     rng = rand_sparse(self.rng(), post=jnp.array)
     rng_v = jtu.rand_default(self.rng())
