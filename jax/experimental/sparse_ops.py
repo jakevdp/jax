@@ -39,6 +39,7 @@ from jax import api
 from jax import core
 from jax import dtypes
 from jax import jit
+from jax import lax
 from jax import tree_util
 from jax.interpreters import ad
 from jax.interpreters import xla
@@ -828,6 +829,9 @@ def _sparse_todense_jvp_rule(primals, tangents):
   return mat.todense(), mat_dot.todense()
 
 def _sparse_todense_transpose_rule(ct, mat):
+  # TODO: notice that here ct is dense, what we *should* do is
+  #       extract the sparsity pattern from mat: do we need a
+  #       new primitive?
   return (SparseArray.fromdense(ct, format=mat.aval.format),)
 
 
@@ -871,8 +875,22 @@ def _sparse_matmul_abstract_eval(A, B):
   dtype = dtypes.result_type(A.dtype, B.dtype)
   return core.ShapedArray(A.shape[:-1], dtype)
 
+def _sparse_matmul_jvp_rule(primals, tangents):
+  mat, v = primals
+  mat_dot, v_dot = tangents
+  v_dot = lax.zeros_like_array(v) if isinstance(v_dot, ad.Zero) else v_dot
+  return mat @ v, mat @ v_dot + mat_dot @ v
+
+def _sparse_matmul_transpose_rule(ct, mat, v):
+  # TODO: here we essentially need to return `outer(ct, v)` and extract the
+  # sparsity pattern based on `mat`. But `mat` is an undefined primal, so
+  # we don't have access to this info! What do we do?
+  raise NotImplementedError()
+
 xla.translations_with_avals[sparse_matmul_p] = xla.lower_fun(
     _sparse_matmul_impl, multiple_results=False, with_avals=True)
+ad.primitive_jvps[sparse_matmul_p] = _sparse_matmul_jvp_rule
+ad.primitive_transposes[sparse_matmul_p] = _sparse_matmul_transpose_rule
 
 # Add relevant methods to SparseArray and AbstractSparseArray
 
