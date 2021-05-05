@@ -326,6 +326,22 @@ class GeneralSparseObjectTest(jtu.JaxTestCase):
       for shape in [(5, 8), (8, 5)] + ([(5,), (5, 5, 8)] if format == "COO" else [])
       for dtype in jtu.dtypes.floating + jtu.dtypes.complex)
     for format in ["COO", "CSR", "CSC"]))
+  def test_properties(self, shape, dtype, format):
+    rng = rand_sparse(self.rng())
+    # JIT-compatible function that accesses relevant properties.
+    def use_props(M):
+      return (jnp.zeros(M.shape, M.dtype), jnp.zeros(M.nnz, M.dtype), len(M.format), *M.bufs)
+    args_maker = lambda: [sparse_ops.SparseArray.fromdense(rng(shape, dtype), format=format)]
+    self._CompileAndCheck(use_props, args_maker)
+
+  @parameterized.named_parameters(itertools.chain.from_iterable(
+    jtu.cases_from_list(
+      {"testcase_name": "_{}_{}".format(
+        jtu.format_shape_dtype_string(shape, dtype), format),
+       "shape": shape, "dtype": dtype, "format": format}
+      for shape in [(5, 8), (8, 5)] + ([(5,), (5, 5, 8)] if format == "COO" else [])
+      for dtype in jtu.dtypes.floating + jtu.dtypes.complex)
+    for format in ["COO", "CSR", "CSC"]))
   def testToDense(self, shape, dtype, format):
     rng = rand_sparse(self.rng(), post=jnp.array)
     M = rng(shape, dtype)

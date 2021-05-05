@@ -730,19 +730,21 @@ xla.xla_shape_handlers[AbstractSparseArray] = sparse_array_shape_handler
 sparse_bufs_p = core.Primitive('sparse_bufs')
 sparse_bufs_p.multiple_results = True
 
+def _sparse_bufs(mat):
+  return sparse_bufs_p.bind(mat)
+
 @sparse_bufs_p.def_impl
 def _sparse_bufs_impl(mat):
-  return mat._bufs
+  return tuple(mat._bufs)
 
 @sparse_bufs_p.def_abstract_eval
 def _sparse_bufs_abstract_eval(mat):
-  return mat.buf_avals
+  return tuple(mat.buf_avals)
 
 def _sparse_bufs_translation_rule(c, *bufs):
   return xops.Tuple(c, bufs)
 
 xla.translations[sparse_bufs_p] = _sparse_bufs_translation_rule
-SparseArray.bufs = property(lambda self: sparse_bufs_p.bind(self))
 
 
 #----------------------------------------------------------------------
@@ -857,8 +859,10 @@ xla.translations_with_avals[sparse_matmul_p] = xla.lower_fun(
 
 # Add relevant methods to SparseArray and AbstractSparseArray
 
+SparseArray.bufs = property(_sparse_bufs)
 SparseArray.todense = _sparse_todense
 SparseArray.__matmul__ = _sparse_matmul
 
+AbstractSparseArray.bufs = core.aval_property(_sparse_bufs)
 AbstractSparseArray.todense = core.aval_method(_sparse_todense)
 AbstractSparseArray._matmul = staticmethod(_sparse_matmul)
