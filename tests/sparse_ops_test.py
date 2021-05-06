@@ -373,6 +373,17 @@ class GeneralSparseObjectTest(jtu.JaxTestCase):
     self.assertAllClose(M @ v, Msp @ v)
     self._CompileAndCheck(operator.matmul, args_maker)
 
+  def testConstHandler(self):
+    def const_array():
+      data = np.arange(3, dtype=np.float32)
+      indices = np.arange(3, dtype=np.int32)
+      aval = sparse_ops.AbstractSparseArray(
+        shape=(indices.max() + 1,), dtype=data.dtype,
+        index_dtype=indices.dtype, nnz=len(data))
+      return sparse_ops.SparseArray(aval, (data, indices))
+    result = jit(const_array)()
+    self.assertArraysEqual(result.todense(), np.arange(3, dtype='float32'))
+
 
 if __name__ == "__main__":
   absltest.main(testLoader=jtu.JaxTestLoader())

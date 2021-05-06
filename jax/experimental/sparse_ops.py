@@ -696,7 +696,7 @@ class SparseArray:
 
 
 def sparse_array_result_handler(device, aval):
-  def build_sparse_array(bufs):
+  def build_sparse_array(*bufs):
     bufs = tuple(
       xla.make_device_array(aval, device, buf)
       for aval, buf in safe_zip(aval.buf_avals, bufs)
@@ -716,6 +716,9 @@ def sparse_array_device_put_handler(a, device):
     for buf in a.bufs
   )
 
+def _sparse_array_constant_handler(c, val, canonicalize_types=True):
+  return tuple(xb.constant(buf, canonicalize_types) for buf in val.bufs)
+
 core.pytype_aval_mappings[SparseArray] = lambda x: x.aval
 core.raise_to_shaped_mappings[AbstractSparseArray] = lambda aval, _: aval
 xla.pytype_aval_mappings[SparseArray] = lambda x: x.aval
@@ -723,13 +726,7 @@ xla.canonicalize_dtype_handlers[SparseArray] = lambda x: x
 xla.device_put_handlers[SparseArray] = sparse_array_device_put_handler
 xla.xla_result_handlers[AbstractSparseArray] = sparse_array_result_handler
 xla.xla_shape_handlers[AbstractSparseArray] = sparse_array_shape_handler
-
-# TODO: figure out multibuf constant handler??
-# def _sparse_array_constant_handler(c, val, canonicalize_types=True):
-#   return xops.Tuple(c,
-#     [xb.constant(c, buf, canonicalize_types=canonicalize_types)
-#      for buf in val.bufs])
-# xb.register_constant_handler(SparseArray, _sparse_array_constant_handler)
+xb.register_constant_handler(SparseArray, _sparse_array_constant_handler)
 
 #----------------------------------------------------------------------
 # sparse_bufs_p: buffer access primitive
