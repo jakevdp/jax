@@ -895,7 +895,10 @@ def _sparse_matmul_transpose_rule(ct, mat, v):
   if ad.is_undefined_primal(mat):
     assert v.ndim == 1
     # Note: the transpose does *not* have the same sparsity pattern as mat!
-    # return (SparseArray.fromdense(jnp.outer(ct, v)), v)
+    # But in the sense that only nonzero values affect the output, it would
+    # make sense to extract values from outer(ct, v) according to the sparsity
+    # pattern of mat, however we don't have access to it here. Maybe an argument
+    # for storing the sparsity pattern in the aval?
     return jnp.outer(ct, v), v
   else:
     return mat, mat.T @ ct
