@@ -61,7 +61,6 @@ def jvpfun(instantiate, primals, tangents):
 
 @lu.transformation
 def jvp_subtrace(main, primals, tangents):
-  # breakpoint()
   trace = JVPTrace(main, core.cur_sublevel())
   for x in list(primals) + list(tangents):
     if isinstance(x, Tracer):

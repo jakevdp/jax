@@ -668,6 +668,7 @@ class AbstractSparseArray(core.ShapedArray):
                                self.weak_type, self.named_shape)
 
 
+# TODO: should _bufs here be xla buffers rather than DeviceArrays?
 class SparseArray:
   """General SparseArray class with multi-buffer jaxpr representations."""
   aval: AbstractSparseArray
@@ -693,6 +694,13 @@ class SparseArray:
       nnz = (mat != 0).sum()
     nnz = core.concrete_or_error(operator.index, nnz, "nnz argument of fromdense()")
     return sparse_fromdense_p.bind(mat, nnz=nnz, index_dtype=index_dtype, format=format)
+
+  def transpose(self):
+    assert self.format == "COO"
+    aval = AbstractSparseArray(shape=self.shape[::-1], dtype=self.dtype, index_dtype=self.aval.index_dtype, nnz=self.nnz, format="COO")
+    return SparseArray(aval, self._bufs[:1] + self._bufs[1:][::-1])
+
+  T = property(transpose)
 
 
 def sparse_array_result_handler(device, aval):
@@ -758,6 +766,10 @@ sparse_fromdense_p = core.Primitive("sparse_fromdense")
 
 @sparse_fromdense_p.def_impl
 def _sparse_fromdense_impl(mat, *, nnz, index_dtype, format):
+  if isinstance(mat, core.Tracer):
+    # TODO: figure out how to implement sparse object from traced arrays.
+    raise NotImplementedError("Creation of SparseArray in a traced context.")
+
   mat = jnp.asarray(mat)
 
   if format == "CSC":
@@ -879,10 +891,14 @@ def _sparse_matmul_jvp_rule(primals, tangents):
   return mat @ v, mat @ v_dot + mat_dot @ v
 
 def _sparse_matmul_transpose_rule(ct, mat, v):
-  # TODO: here we essentially need to return `outer(ct, v)` and extract the
-  # sparsity pattern based on `mat`. But `mat` is an undefined primal, so
-  # we don't have access to this info! What do we do?
-  raise NotImplementedError()
+  assert ct.ndim == 1
+  if ad.is_undefined_primal(mat):
+    assert v.ndim == 1
+    # Note: the transpose does *not* have the same sparsity pattern as mat!
+    # return (SparseArray.fromdense(jnp.outer(ct, v)), v)
+    return jnp.outer(ct, v), v
+  else:
+    return mat, mat.T @ ct
 
 xla.translations_with_avals[sparse_matmul_p] = xla.lower_fun(
     _sparse_matmul_impl, multiple_results=False, with_avals=True)
