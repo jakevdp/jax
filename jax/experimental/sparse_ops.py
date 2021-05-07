@@ -803,8 +803,18 @@ def _sparse_fromdense_abstract_eval(mat, *, nnz, index_dtype, format):
     raise ValueError(f"only two-dimensional arrays supported for format={format}")
   return AbstractSparseArray(mat.shape, mat.dtype, index_dtype, nnz, format=format)
 
+def _sparse_fromdense_jvp(primals, tangents):
+  mat, = primals
+  mat_dot, = tangents
+  return SparseArray.fromdense(mat), SparseArray.fromdense(mat_dot)
+
+def _sparse_fromdense_transpose(ct, mat):
+  return (ct.todense(),)
+
 xla.translations_with_avals[sparse_fromdense_p] = xla.lower_fun(
     _sparse_fromdense_impl, multiple_results=False, with_avals=True)
+ad.primitive_jvps[sparse_fromdense_p] = _sparse_fromdense_jvp
+ad.primitive_transposes[sparse_fromdense_p] = _sparse_fromdense_transpose
 
 
 #----------------------------------------------------------------------
@@ -832,12 +842,12 @@ def _sparse_todense_impl(mat):
 def _sparse_todense_abstract_eval(mat):
   return core.ShapedArray(mat.shape, mat.dtype)
 
-def _sparse_todense_jvp_rule(primals, tangents):
+def _sparse_todense_jvp(primals, tangents):
   mat, = primals
   mat_dot, = tangents
   return mat.todense(), mat_dot.todense()
 
-def _sparse_todense_transpose_rule(ct, mat):
+def _sparse_todense_transpose(ct, mat):
   # TODO: notice that here ct is dense, what we *should* do is
   #       extract the sparsity pattern from mat: do we need a
   #       new primitive?
@@ -846,8 +856,8 @@ def _sparse_todense_transpose_rule(ct, mat):
 
 xla.translations_with_avals[sparse_todense_p] = xla.lower_fun(
     _sparse_todense_impl, multiple_results=False, with_avals=True)
-ad.primitive_jvps[sparse_todense_p] = _sparse_todense_jvp_rule
-ad.primitive_transposes[sparse_todense_p] = _sparse_todense_transpose_rule
+ad.primitive_jvps[sparse_todense_p] = _sparse_todense_jvp
+ad.primitive_transposes[sparse_todense_p] = _sparse_todense_transpose
 
 #----------------------------------------------------------------------
 # sparse_matmul_p: sparse matrix multiplication primitive
@@ -884,13 +894,13 @@ def _sparse_matmul_abstract_eval(A, B):
   dtype = dtypes.result_type(A.dtype, B.dtype)
   return core.ShapedArray(A.shape[:-1], dtype)
 
-def _sparse_matmul_jvp_rule(primals, tangents):
+def _sparse_matmul_jvp(primals, tangents):
   mat, v = primals
   mat_dot, v_dot = tangents
   v_dot = lax.zeros_like_array(v) if isinstance(v_dot, ad.Zero) else v_dot
   return mat @ v, mat @ v_dot + mat_dot @ v
 
-def _sparse_matmul_transpose_rule(ct, mat, v):
+def _sparse_matmul_transpose(ct, mat, v):
   assert ct.ndim == 1
   if ad.is_undefined_primal(mat):
     assert v.ndim == 1
@@ -905,8 +915,8 @@ def _sparse_matmul_transpose_rule(ct, mat, v):
 
 xla.translations_with_avals[sparse_matmul_p] = xla.lower_fun(
     _sparse_matmul_impl, multiple_results=False, with_avals=True)
-ad.primitive_jvps[sparse_matmul_p] = _sparse_matmul_jvp_rule
-ad.primitive_transposes[sparse_matmul_p] = _sparse_matmul_transpose_rule
+ad.primitive_jvps[sparse_matmul_p] = _sparse_matmul_jvp
+ad.primitive_transposes[sparse_matmul_p] = _sparse_matmul_transpose
 
 # Add relevant methods to SparseArray and AbstractSparseArray
 
