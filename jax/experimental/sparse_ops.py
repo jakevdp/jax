@@ -40,6 +40,8 @@ from jax import core
 from jax import jit
 from jax import lax
 from jax import tree_util
+from jax import vmap
+from jax.interpreters import batching
 from jax.interpreters import xla
 from jax.lib import cusparse
 from jax.lib import xla_bridge
@@ -74,6 +76,16 @@ def _csr_extract(indices, indptr, mat):
 def _coo_extract(row, col, mat):
   """Extract values of dense matrix mat at given COO indices."""
   return mat[row, col]
+
+@jit
+def _bcoo_extract(indices, mat):
+  """Extract batched sparse values from dense matrix `max` at given batched indices."""
+  n_sparse, nnz = indices.shape[-2:]
+  n_batch = indices.ndim - 2
+  batch_slices = tuple(slice(s) for s in mat.shape[:n_batch])
+  sparse_ind = tuple(indices[tuple(np.mgrid[batch_slices]) + (i,)] for i in range(n_sparse))
+  batch_ind = tuple(np.mgrid[batch_slices + (slice(1),)])[:-1]
+  return mat[batch_ind + sparse_ind]
 
 #--------------------------------------------------------------------
 # csr_todense
@@ -545,6 +557,181 @@ def _coo_matmat_jvp_rule(primals_in, tangents_in, **params):
   return primals_out, tangents_out
 ad.primitive_jvps[coo_matmat_p] = _coo_matmat_jvp_rule
 
+
+#----------------------------------------------------------------------
+# bcoo_todense
+# BCOO is a batched extension of COO.
+
+def _bcoo_nnz(mat, n_batch=0, n_block=0):
+  mat = jnp.asarray(mat)
+  mask = (mat != 0)
+  if n_block > 0:
+    mask = mask.any([-(i + 1) for i in range(n_block)])
+  mask = mask.sum(list(range(n_batch, mask.ndim)))
+  return mask.max()
+
+bcoo_todense_p = core.Primitive('bcoo_todense_p')
+
+def bcoo_todense(data, indices, *, shape):
+  """Convert batched sparse matrix to a dense matrix.
+
+  Args:
+    data : array of shape ``batch_dims + (nnz,) + block_dims``.
+    indices : array of shape ``batch_dims + (n_sparse, nnz)``
+    shape : tuple; the shape of the (batched) matrix. Equal to
+      ``batch_dims + sparse_dims + block_dims``
+      where ``len(sparse_dims) == n_sparse``
+
+  Returns:
+    mat : array with specified shape and dtype matching ``data``
+  """
+  return bcoo_todense_p.bind(data, indices, shape=shape)
+
+@bcoo_todense_p.def_impl
+def _bcoo_todense_impl(data, indices, *, shape):
+  n_sparse, nnz = indices.shape[-2:]
+  n_batch = indices.ndim - 2
+  assert len(shape) >= n_batch + n_sparse
+  assert data.shape == shape[:n_batch] + (nnz,) + shape[n_batch + n_sparse:]
+  assert jnp.issubdtype(indices.dtype, jnp.integer)
+  assert indices.shape == shape[:n_batch] + (n_sparse, nnz)
+  batch_slices = tuple(slice(s) for s in shape[:n_batch])
+  sparse_ind = tuple(indices[tuple(np.mgrid[batch_slices]) + (i,)] for i in range(n_sparse))
+  batch_ind = tuple(np.mgrid[batch_slices + (slice(1),)])[:-1]
+  if not (batch_ind or sparse_ind):
+    return data[0]
+  return jnp.zeros(shape, data.dtype).at[batch_ind + sparse_ind].add(data)
+
+@bcoo_todense_p.def_abstract_eval
+def _bcoo_todense_abstract_eval(data, indices, *, shape):
+  n_sparse, nnz = indices.shape[-2:]
+  n_batch = indices.ndim - 2
+  assert len(shape) >= n_batch + n_sparse
+  assert data.shape == shape[:n_batch] + (nnz,) + shape[n_batch + n_sparse:]
+  assert jnp.issubdtype(indices.dtype, jnp.integer)
+  assert indices.shape == shape[:n_batch] + (n_sparse, nnz)
+  return core.ShapedArray(shape, data.dtype)
+
+def _bcoo_todense_jvp(data_dot, data, indices, *, shape):
+  return bcoo_todense(data_dot, indices, shape=shape)
+
+def _bcoo_todense_transpose(ct, data, indices, *, shape):
+  assert ad.is_undefined_primal(data)
+  if ad.is_undefined_primal(indices):
+    raise ValueError("Cannot transpose with respect to sparse indices")
+  assert ct.shape == shape
+  assert ct.dtype == data.aval.dtype
+  return _bcoo_extract(indices, ct), indices
+
+def _bcoo_todense_batching_rule(batched_args, batch_dims, *, shape):
+  data, indices = batched_args
+  if batch_dims not in [(0, 0), (0, None)]:
+    raise NotImplementedError(f"batch_dims={batch_dims}")
+  if batch_dims[1] is None:
+    # TODO: handle this in the primitive
+    indices = jnp.stack([indices for i in range(data.shape[0])])
+  return bcoo_todense(data, indices, shape=(data.shape[0], *shape)), 0
+
+ad.defjvp(bcoo_todense_p, _bcoo_todense_jvp, None)
+ad.primitive_transposes[bcoo_todense_p] = _bcoo_todense_transpose
+batching.primitive_batchers[bcoo_todense_p] = _bcoo_todense_batching_rule
+xla.translations[bcoo_todense_p] = xla.lower_fun(
+    _bcoo_todense_impl, multiple_results=False)
+
+#--------------------------------------------------------------------
+# bcoo_fromdense
+
+bcoo_fromdense_p = core.Primitive('bcoo_fromdense')
+bcoo_fromdense_p.multiple_results = True
+
+def bcoo_fromdense(mat, *, nnz=None, n_batch=0, n_block=0, index_dtype=jnp.int32):
+  """Create COO-format sparse matrix from a dense matrix.
+
+  Args:
+    mat : array to be converted to COO, with ``ndim = n_batch + n_sparse + n_block``.
+    nnz : number of nonzero entries in each batch
+    n_batch : number of batch dimensions (default: 0)
+    n_block : number of block_dimensions (default: 0)
+    index_dtype : dtype of sparse indices (default: int32)
+
+  Returns:
+    data : array of shape ``mat.shape[:n_batch] + (nnz,) + mat.shape[mat.ndim - n_block:]``
+      and dtype ``mat.dtype``
+    indices : array of shape ``mat.shape[:n_batch] + (n_sparse, nnz)``
+  """
+  if nnz is None:
+    nnz = _bcoo_nnz(mat, n_batch, n_block)
+  nnz = core.concrete_or_error(operator.index, nnz, "nnz argument of bcoo_fromdense")
+  return bcoo_fromdense_p.bind(mat, nnz=nnz, n_batch=n_batch, n_block=n_block,
+                              index_dtype=index_dtype)
+
+@bcoo_fromdense_p.def_impl
+def _bcoo_fromdense_impl(mat, *, nnz, n_batch, n_block, index_dtype):
+  mat = jnp.asarray(mat)
+  mask = (mat != 0)
+  if n_block > 0:
+    mask = mask.any([-(i + 1) for i in range(n_block)])
+  nonzero = lambda a: jnp.nonzero(a, size=nnz) if a.ndim else ()
+  for _ in range(n_batch):
+    nonzero = vmap(nonzero, 0)
+  indices = nonzero(mask)
+  if not indices:
+    indices = jnp.zeros(mask.shape[:n_batch] + (0, nnz), index_dtype)
+  else:
+    indices = jnp.moveaxis(jnp.array(indices, index_dtype), 0, n_batch)
+  data = _bcoo_extract(indices, mat)
+
+  true_nonzeros = jnp.arange(nnz) < mask.sum(list(range(n_batch, mask.ndim)))[..., None]
+  true_nonzeros = true_nonzeros[(n_batch + 1) * (slice(None),) + n_block * (None,)]
+  data = jnp.where(true_nonzeros, data, 0)
+
+  return data, indices
+
+@bcoo_fromdense_p.def_abstract_eval
+def _bcoo_fromdense_abstract_eval(mat, *, nnz, n_batch, n_block, index_dtype):
+  n_sparse = mat.ndim - n_batch - n_block
+  data_shape = mat.shape[:n_batch] + (nnz,) + mat.shape[n_batch + n_sparse:]
+  index_shape = mat.shape[:n_batch] + (n_sparse, nnz)
+  return core.ShapedArray(data_shape, mat.dtype), core.ShapedArray(index_shape, index_dtype)
+
+def _bcoo_fromdense_jvp(primals, tangents, *, nnz, n_batch, n_block, index_dtype):
+  M, = primals
+  Mdot, = tangents
+
+  primals_out = bcoo_fromdense(M, nnz=nnz, n_batch=n_batch, n_block=n_block, index_dtype=index_dtype)
+  data, indices = primals_out
+
+  if type(Mdot) is ad.Zero:
+    data_dot = ad.Zero.from_value(data)
+  else:
+    data_dot = _bcoo_extract(indices, Mdot)
+
+  tangents_out = (data_dot, ad.Zero.from_value(indices))
+
+  return primals_out, tangents_out
+
+def _bcoo_fromdense_transpose(ct, M, *, nnz, n_batch, n_block, index_dtype):
+  data, indices = ct
+  n_sparse = M.ndim = n_batch - n_block
+  assert data.shape == M.shape[:n_batch] + (nnz,) + M.shape[n_batch + n_sparse:]
+  assert indices.shape == M.shape[:n_batch] + (n_sparse, nnz)
+  assert indices.dtype == index_dtype
+  if isinstance(indices, ad.Zero):
+    raise ValueError("Cannot transpose with respect to sparse indices")
+  assert ad.is_undefined_primal(M)
+  return bcoo_todense(data, indices, shape=M.aval.shape)
+
+def _bcoo_fromdense_batching_rule(batched_args, batch_dims, *, nnz, n_batch, n_block, index_dtype):
+  M, = batched_args
+  if batch_dims != (0,):
+    raise NotImplementedError(f"batch_dims={batch_dims}")
+  return bcoo_fromdense(M, nnz=nnz, n_batch=n_batch + 1, n_block=n_block, index_dtype=index_dtype)
+
+ad.primitive_jvps[bcoo_fromdense_p] = _bcoo_fromdense_jvp
+ad.primitive_transposes[bcoo_fromdense_p] = _bcoo_fromdense_transpose
+batching.primitive_batchers[bcoo_fromdense_p] = _bcoo_fromdense_batching_rule
+xla.translations[bcoo_fromdense_p] = xla.lower_fun(
+    _bcoo_fromdense_impl, multiple_results=True)
 
 #----------------------------------------------------------------------
 # Sparse objects (APIs subject to change)

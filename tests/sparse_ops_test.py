@@ -12,12 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from functools import partial
 import itertools
 import unittest
 
 from absl.testing import absltest
 from absl.testing import parameterized
 
+import jax
 from jax import api
 from jax import config
 from jax import dtypes
@@ -354,6 +356,76 @@ class cuSparseTest(jtu.JaxTestCase):
     out_sparse, = vjp_sparse(primals_sparse)
     self.assertAllClose(primals_dense[0], primals_sparse[0], atol=tol, rtol=tol)
     self.assertAllClose(out_dense, out_sparse, atol=tol, rtol=tol)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {"testcase_name": "_{}_nbatch={}_nblock={}".format(
+        jtu.format_shape_dtype_string(shape, dtype), n_batch, n_block),
+       "shape": shape, "dtype": dtype, "n_batch": n_batch, "n_block": n_block}
+      for shape in [(5,), (5, 8), (8, 5), (3, 4, 5), (3, 4, 3, 2)]
+      for dtype in jtu.dtypes.floating + jtu.dtypes.complex
+      for n_batch in range(len(shape) + 1)
+      for n_block in range(len(shape) + 1 - n_batch)))
+  def test_bcoo_dense_round_trip(self, shape, dtype, n_batch, n_block):
+    rng = rand_sparse(self.rng())
+    M = rng(shape, dtype)
+    n_sparse = M.ndim - n_batch - n_block
+    nnz = int(sparse_ops._bcoo_nnz(M, n_batch=n_batch, n_block=n_block))
+    data, indices = sparse_ops.bcoo_fromdense(M, n_batch=n_batch, n_block=n_block)
+    # TODO: test fromdense JIT
+
+    assert data.dtype == dtype
+    assert data.shape == shape[:n_batch] + (nnz,) + shape[n_batch + n_sparse:]
+    assert indices.dtype == jnp.int32  # TODO: test passing this arg
+    assert indices.shape == shape[:n_batch] + (n_sparse, nnz)
+
+    todense = partial(sparse_ops.bcoo_todense, shape=shape)
+    self.assertArraysEqual(M, todense(data, indices))
+    self.assertArraysEqual(M, jit(todense)(data, indices))
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {"testcase_name": "_{}_nbatch={}_nblock={}".format(
+        jtu.format_shape_dtype_string(shape, dtype), n_batch, n_block),
+       "shape": shape, "dtype": dtype, "n_batch": n_batch, "n_block": n_block}
+      for shape in [(5,), (5, 8), (8, 5), (3, 4, 5), (3, 4, 3, 2)]
+      for dtype in jtu.dtypes.floating
+      for n_batch in range(len(shape) + 1)
+      for n_block in range(len(shape) + 1 - n_batch)))
+  def test_bcoo_todense_ad(self, shape, dtype, n_batch, n_block):
+    rng = rand_sparse(self.rng())
+    M = rng(shape, dtype)
+    data, indices = sparse_ops.bcoo_fromdense(M, n_batch=n_batch, n_block=n_block)
+
+    todense = partial(sparse_ops.bcoo_todense, indices=indices, shape=shape)
+    j1 = jax.jacfwd(todense)(data)
+    j2 = jax.jacrev(todense)(data)
+    hess = jax.hessian(todense)(data)
+    self.assertArraysAllClose(j1, j2)
+    self.assertEqual(j1.shape, M.shape + data.shape)
+    self.assertEqual(hess.shape, M.shape + 2 * data.shape)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {"testcase_name": "_{}_nbatch={}_nblock={}".format(
+        jtu.format_shape_dtype_string(shape, dtype), n_batch, n_block),
+       "shape": shape, "dtype": dtype, "n_batch": n_batch, "n_block": n_block}
+      for shape in [(5,), (5, 8), (8, 5), (3, 4, 5), (3, 4, 3, 2)]
+      for dtype in jtu.dtypes.floating
+      for n_batch in range(len(shape) + 1)
+      for n_block in range(len(shape) + 1 - n_batch)))
+  def test_bcoo_fromdense_ad(self, shape, dtype, n_batch, n_block):
+    rng = rand_sparse(self.rng())
+    M = rng(shape, dtype)
+    nnz = int(sparse_ops._bcoo_nnz(M, n_batch=n_batch, n_block=n_block))
+
+    def fromdense(M):
+      return sparse_ops.bcoo_fromdense(M, nnz=nnz, n_batch=n_batch, n_block=n_block)[0]
+    data = fromdense(M)
+
+    j1 = jax.jacfwd(fromdense)(M)
+    j2 = jax.jacrev(fromdense)(M)
+    hess = jax.hessian(fromdense)(M)
+    self.assertArraysAllClose(j1, j2)
+    self.assertEqual(j1.shape, data.shape + M.shape)
+    self.assertEqual(hess.shape, data.shape + 2 * M.shape)
 
 
 class SparseObjectTest(jtu.JaxTestCase):
