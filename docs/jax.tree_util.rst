@@ -20,6 +20,7 @@ List of Functions
    tree_flatten
    tree_leaves
    tree_map
+   tree_multimap
    tree_reduce
    tree_structure
    tree_transpose
