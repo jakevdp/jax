@@ -1161,6 +1161,60 @@ xla.translations[bcoo_dot_general_sampled_p] = xla.lower_fun(
     _bcoo_dot_general_sampled_impl, multiple_results=False)
 
 #----------------------------------------------------------------------
+# bcoo_spdot_general
+# (batched) general dot product of two BCOO sparse arrays returning a
+# Dense ND array.
+
+bcoo_spdot_general_p = core.Primitive('bcoo_spdot_general')
+
+def bcoo_spdot_general(lhs_data, lhs_indices, rhs_data, rhs_indices, *, lhs_shape, rhs_shape, dimension_numbers):
+  return bcoo_spdot_general_p.bind(lhs_data, lhs_indices, rhs_data, rhs_indices,
+                                   lhs_shape=lhs_shape, rhs_shape=rhs_shape, dimension_numbers=dimension_numbers)
+
+@bcoo_spdot_general_p.def_impl
+def _bcoo_spdot_general_impl(lhs_data, lhs_indices, rhs_data, rhs_indices, *, lhs_shape, rhs_shape, dimension_numbers):
+  out_aval = _bcoo_spdot_general_abstract_eval(
+    lhs_data.aval, lhs_indices.aval, rhs_data.aval, rhs_indices.aval,
+    lhs_shape=lhs_shape, rhs_shape=rhs_shape, dimension_numbers=dimension_numbers)
+
+  # Dot product of two 1D sparse vectors.
+  indices = jnp.concatenate([lhs_indices[0], rhs_indices[0]])
+  size = min(indices.shape[0], lhs_shape[0])
+  _, inv = jnp.unique(indices, size=size, return_inverse=True)
+  lhs_inv, rhs_inv = inv[:len(lhs_data)], inv[len(lhs_data):]
+  lhs = jnp.zeros(size, out_aval.dtype).at[lhs_inv].add(lhs_data)
+  rhs = jnp.zeros(size, out_aval.dtype).at[rhs_inv].add(rhs_data)
+  return lax.dot_general(lhs, rhs, dimension_numbers=(([0], [0]), ([], [])))
+
+@bcoo_spdot_general_p.def_abstract_eval
+def _bcoo_spdot_general_abstract_eval(lhs_data, lhs_indices, rhs_data, rhs_indices, *, lhs_shape, rhs_shape, dimension_numbers):
+  lhs_n_batch, lhs_n_sparse, lhs_n_dense = _validate_bcoo(lhs_data, lhs_indices, lhs_shape)
+  rhs_n_batch, rhs_n_sparse, rhs_n_dense = _validate_bcoo(lhs_data, lhs_indices, lhs_shape)
+  (lhs_contracting, rhs_contracting) , (lhs_batch, rhs_batch) = dimension_numbers
+
+  if not (lhs_n_dense == rhs_n_dense == 0):
+    # TODO(jakevdp): handle dense dimensions
+    raise NotImplementedError("bcoo_spdot_general with dense dimensions.")
+
+  if not (lhs_n_batch == rhs_n_batch == 0):
+    # TODO(jakevdp): handle batch dimensions (via recursive vmap?)
+    raise NotImplementedError("bcoo_spdot_general with batch dimensions.")
+
+  if not (lhs_n_sparse == rhs_n_sparse == 1):
+    raise NotImplementedError("bcoo_spdot_general with more than one sparse dimension.")
+
+  if not (tuple(lhs_contracting) == tuple(rhs_contracting) == (0,)):
+    raise NotImplementedError("bcoo_spdot_general only supports contracting of sparse indices.")
+
+  if lhs_shape != rhs_shape:
+    raise ValueError(f"shapes mismatch: {lhs_shape} != {rhs_shape}")
+  return core.ShapedArray((), dtype=jnp.promote_types(lhs_data.dtype, rhs_data.dtype))
+
+# TODO: batching, ad, transpose
+xla.translations[bcoo_spdot_general_p] = xla.lower_fun(
+    _bcoo_spdot_general_impl, multiple_results=False)
+
+#----------------------------------------------------------------------
 # BCOO functions that maybe should be primitives?
 
 def _tuple_replace(tup, ind, val):
@@ -1417,16 +1471,18 @@ class BCOO(JAXSparse):
     return bcoo_todense(self.data, self.indices, shape=self.shape)
 
   def __matmul__(self, other):
-    if isinstance(other, JAXSparse):
+    if isinstance(other, BCOO):
+      return bcoo_spdot_general(self.data, self.indices, other.data, other.indices,
+                                lhs_shape=self.shape, rhs_shape=other.shape,
+                                dimension_numbers=(([self.ndim - 1], [0]), ([], [])))
+    elif isinstance(other, JAXSparse):
       raise NotImplementedError("sparse-sparse matmul")
     other = jnp.asarray(other)
     if self.ndim == 0 or other.ndim == 0:
       raise ValueError("matmul inputs cannot be zero-dimensional.")
     if self.ndim > 2 or other.ndim > 2:
       raise NotImplementedError("sparse matmul for dimensions larger than 2")
-    dtype = jnp.promote_types(self.dtype, other.dtype)
-    return bcoo_dot_general(self.data.astype(dtype), self.indices, other.astype(dtype),
-                            lhs_shape=self.shape,
+    return bcoo_dot_general(self.data, self.indices, other, lhs_shape=self.shape,
                             dimension_numbers=(([self.ndim - 1], [0]), ([], [])))
 
   def __rmatmul__(self, other):

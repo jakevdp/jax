@@ -937,6 +937,29 @@ class BCOOTest(jtu.JaxTestCase):
     self.assertAllClose(jf_sparse, jr_sparse, atol=tol)
 
   @parameterized.named_parameters(jtu.cases_from_list(
+      {"testcase_name": "_{}".format(
+        jtu.format_shape_dtype_string(shape, dtype)),
+       "shape": shape, "dtype": dtype}
+      for shape in [(5,), (7,), (12,)]
+      for dtype in jtu.dtypes.floating + jtu.dtypes.complex))
+  def test_bcoo_spdot_general(self, shape, dtype):
+    sprng = rand_sparse(self.rng())
+    def args_maker():
+      x = sprng(shape, dtype)
+      y = sprng(shape, dtype)
+      return x, y, sparse.BCOO.fromdense(x), sparse.BCOO.fromdense(y)
+
+    def f_dense(x, y, xsp, ysp):
+      return x @ y
+
+    def f_sparse(x, y, xsp, ysp):
+      return xsp @ ysp
+
+    self._CheckAgainstNumpy(f_dense, f_sparse, args_maker)
+    self._CompileAndCheck(f_sparse, args_maker)
+
+
+  @parameterized.named_parameters(jtu.cases_from_list(
       {"testcase_name": "_{}_nbatch={}_ndense={}".format(
         jtu.format_shape_dtype_string(shape, dtype), n_batch, n_dense),
        "shape": shape, "dtype": dtype, "n_batch": n_batch, "n_dense": n_dense}
