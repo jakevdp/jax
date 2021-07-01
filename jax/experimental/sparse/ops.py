@@ -1171,44 +1171,80 @@ def bcoo_spdot_general(lhs_data, lhs_indices, rhs_data, rhs_indices, *, lhs_shap
   return bcoo_spdot_general_p.bind(lhs_data, lhs_indices, rhs_data, rhs_indices,
                                    lhs_shape=lhs_shape, rhs_shape=rhs_shape, dimension_numbers=dimension_numbers)
 
+def _bcoo_vv(lhs_data, lhs_indices, rhs_data, rhs_indices, *, size, dtype):
+  # Compute the dot product of two sparse vectors, returning a scalar
+  assert lhs_data.ndim == rhs_data.ndim == 1
+  assert lhs_indices.shape == (1, lhs_data.size)
+  assert rhs_indices.shape == (1, rhs_data.size)
+  indices = jnp.hstack([lhs_indices, rhs_indices])
+  size = min(indices.shape[-1], size)
+  _, inv = jnp.unique(indices, size=size, return_inverse=True)
+  lhs_inv, rhs_inv = inv[:len(lhs_data)], inv[len(lhs_data):]
+  lhs = jnp.zeros(size, dtype).at[lhs_inv].add(lhs_data)
+  rhs = jnp.zeros(size, dtype).at[rhs_inv].add(rhs_data)
+  return lax.dot_general(lhs, rhs, dimension_numbers=(([0], [0]), ([], [])))
+
 @bcoo_spdot_general_p.def_impl
 def _bcoo_spdot_general_impl(lhs_data, lhs_indices, rhs_data, rhs_indices, *, lhs_shape, rhs_shape, dimension_numbers):
   out_aval = _bcoo_spdot_general_abstract_eval(
     lhs_data.aval, lhs_indices.aval, rhs_data.aval, rhs_indices.aval,
     lhs_shape=lhs_shape, rhs_shape=rhs_shape, dimension_numbers=dimension_numbers)
+  _, (lhs_batch, rhs_batch) = dimension_numbers
+  lhs_n_batch = lhs_indices.ndim - 2
+  rhs_n_batch = rhs_indices.ndim - 2
 
-  # Dot product of two 1D sparse vectors.
-  indices = jnp.concatenate([lhs_indices[0], rhs_indices[0]])
-  size = min(indices.shape[0], lhs_shape[0])
-  _, inv = jnp.unique(indices, size=size, return_inverse=True)
-  lhs_inv, rhs_inv = inv[:len(lhs_data)], inv[len(lhs_data):]
-  lhs = jnp.zeros(size, out_aval.dtype).at[lhs_inv].add(lhs_data)
-  rhs = jnp.zeros(size, out_aval.dtype).at[rhs_inv].add(rhs_data)
-  return lax.dot_general(lhs, rhs, dimension_numbers=(([0], [0]), ([], [])))
+  # Move batch dimension to front
+  lhs_perm = tuple(lhs_batch) + tuple(i for i in range(lhs_n_batch) if i not in lhs_batch)
+  rhs_perm = tuple(rhs_batch) + tuple(i for i in range(rhs_n_batch) if i not in rhs_batch)
+  lhs_indices = lhs_indices.transpose(lhs_perm + (lhs_n_batch, lhs_n_batch + 1))
+  rhs_indices = rhs_indices.transpose(rhs_perm + (rhs_n_batch, rhs_n_batch + 1))
+  lhs_data = lhs_data.transpose(lhs_perm + (lhs_n_batch,))
+  rhs_data = rhs_data.transpose(rhs_perm + (rhs_n_batch,))
+
+  # Implement batched dot product via vmap
+  func = functools.partial(_bcoo_vv, size=lhs_shape[-1], dtype=out_aval.dtype)
+  for dim in reversed(range(len(rhs_batch), rhs_n_batch)):
+    func = vmap(func, in_axes=(None, None, 0, 0))
+  for dim in reversed(range(len(lhs_batch), lhs_n_batch)):
+    func = vmap(func, in_axes=(0, 0, None, None))
+  for dim in range(len(lhs_batch)):
+    func = vmap(func)
+  return func(lhs_data, lhs_indices, rhs_data, rhs_indices)
 
 @bcoo_spdot_general_p.def_abstract_eval
 def _bcoo_spdot_general_abstract_eval(lhs_data, lhs_indices, rhs_data, rhs_indices, *, lhs_shape, rhs_shape, dimension_numbers):
   lhs_n_batch, lhs_n_sparse, lhs_n_dense = _validate_bcoo(lhs_data, lhs_indices, lhs_shape)
-  rhs_n_batch, rhs_n_sparse, rhs_n_dense = _validate_bcoo(lhs_data, lhs_indices, lhs_shape)
-  (lhs_contracting, rhs_contracting) , (lhs_batch, rhs_batch) = dimension_numbers
+  rhs_n_batch, rhs_n_sparse, rhs_n_dense = _validate_bcoo(rhs_data, rhs_indices, rhs_shape)
+  (lhs_contracting, rhs_contracting), (lhs_batch, rhs_batch) = dimension_numbers
+
+  # Check for proper dimension_numbers
+  for dims in [lhs_contracting, rhs_contracting, lhs_batch, rhs_batch]:
+    assert len(dims) == len(set(dims))
+  assert not set(lhs_contracting).intersection(lhs_batch)
+  assert not set(rhs_contracting).intersection(rhs_batch)
+  assert [lhs_shape[d] for d in lhs_contracting] == [rhs_shape[d] for d in rhs_contracting]
+  assert [lhs_shape[d] for d in lhs_batch] == [rhs_shape[d] for d in rhs_batch]
 
   if not (lhs_n_dense == rhs_n_dense == 0):
     # TODO(jakevdp): handle dense dimensions
     raise NotImplementedError("bcoo_spdot_general with dense dimensions.")
 
-  if not (lhs_n_batch == rhs_n_batch == 0):
-    # TODO(jakevdp): handle batch dimensions (via recursive vmap?)
-    raise NotImplementedError("bcoo_spdot_general with batch dimensions.")
-
   if not (lhs_n_sparse == rhs_n_sparse == 1):
     raise NotImplementedError("bcoo_spdot_general with more than one sparse dimension.")
 
-  if not (tuple(lhs_contracting) == tuple(rhs_contracting) == (0,)):
-    raise NotImplementedError("bcoo_spdot_general only supports contracting of sparse indices.")
+  if any(dim >= lhs_n_batch for dim in lhs_batch) or any(dim > rhs_n_batch for dim in rhs_batch):
+    raise NotImplementedError("bcoo_spdot_general: batch_dims must correspond to batch dimensions of the sparse representation.")
 
-  if lhs_shape != rhs_shape:
-    raise ValueError(f"shapes mismatch: {lhs_shape} != {rhs_shape}")
-  return core.ShapedArray((), dtype=jnp.promote_types(lhs_data.dtype, rhs_data.dtype))
+  if tuple(lhs_contracting) != (lhs_n_batch,) or tuple(rhs_contracting) != (rhs_n_batch,):
+    raise NotImplementedError("bcoo_spdot_general only supports contraction of sparse indices.")
+
+  out_shape = (
+    tuple(lhs_shape[dim] for dim in lhs_batch) +
+    tuple(lhs_shape[i] for i in range(lhs_n_batch) if i not in lhs_batch) +
+    tuple(rhs_shape[i] for i in range(rhs_n_batch) if i not in rhs_batch))
+  out_dtype = jnp.promote_types(lhs_data.dtype, rhs_data.dtype)
+
+  return core.ShapedArray(out_shape, dtype=out_dtype)
 
 # TODO: batching, ad, transpose
 xla.translations[bcoo_spdot_general_p] = xla.lower_fun(
