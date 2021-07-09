@@ -362,21 +362,41 @@ def _squeeze_sparse(spenv, *argspecs, dimensions):
 
 sparse_rules[lax.squeeze_p] = _squeeze_sparse
 
-def _scan_sparse(spenv, *argspecs, jaxpr, **params):
-  invals = argspecs_to_arrays(spenv, argspecs)
-  invals_flat, in_tree = tree_flatten(invals)
-  in_avals_flat = [core.get_aval(v) for v in invals_flat]
+def _scan_sparse(spenv, *argspecs, jaxpr, num_carry, num_consts, **params):
+  # TODO(jakevdp): converting from argspecs to arrays and back loses information on
+  #   e.g. shared indices Can we make the following work somehow while maintaining
+  #   the argspecs mapping?
+
+  const_argspecs = argspecs[:num_consts]
+  carry_argspecs = argspecs[num_consts:num_consts + num_carry]
+  body_argspecs = argspecs[num_consts:]
+
+  const_invals = argspecs_to_arrays(spenv, const_argspecs)
+  carry_invals = argspecs_to_arrays(spenv, carry_argspecs)
+  body_invals = argspecs_to_arrays(spenv, body_argspecs)
+  body_avals = argspecs_to_avals(spenv, body_argspecs)
+  
+  const_invals_flat, const_tree = tree_flatten(const_invals)
+  carry_invals_flat, carry_tree = tree_flatten(carry_invals)
+  body_invals_flat, body_invals_tree = tree_flatten(body_invals)
+  body_avals_flat, _ = tree_flatten(body_avals)
+
   @lu.wrap_init
   def body_fun(*invals_flat):
-    invals = tree_unflatten(in_tree, invals_flat)
+    breakpoint()
+    invals = tree_unflatten(body_invals_tree, invals_flat)
     argspecs = arrays_to_argspecs(spenv, invals)
     result = eval_sparse(jaxpr.jaxpr, jaxpr.consts, argspecs, spenv)
     out = argspecs_to_arrays(spenv, result)
-    out_flat, out_tree = tree_flatten(out)
+    out_flat, _ = tree_flatten(out)
     return out_flat
-  sp_jaxpr, out_avals_flat, consts = pe.trace_to_jaxpr_dynamic(body_fun, in_avals_flat)
-  closed_jaxpr = pe.ClosedJaxpr(pe.convert_constvars_jaxpr(sp_jaxpr), consts)
-  out = lax.scan_p.bind(*consts, *invals_flat, jaxpr=closed_jaxpr, **params)
-  breakpoint()
+  sp_jaxpr, _, consts = pe.trace_to_jaxpr_dynamic(body_fun, body_avals_flat)
+  sp_jaxpr = pe.ClosedJaxpr(pe.convert_constvars_jaxpr(sp_jaxpr), consts)
+  params['num_carry'] = len(carry_invals_flat)
+  params['num_consts'] = len(const_invals_flat)
+  params['linear'] = (False,) * (len(const_invals_flat) + len(body_in_flat))
+  out_flat = lax.scan_p.bind(*consts, *body_invals_flat, jaxpr=sp_jaxpr, **params)
+  out = tree_unflatten(body_invals_tree, out_flat)
+  return arrays_to_argspecs(spenv, out)
 
 sparse_rules[lax.scan_p] = _scan_sparse

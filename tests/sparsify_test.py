@@ -183,6 +183,10 @@ class SparsifyTest(jtu.JaxTestCase):
 
     self.assertAllClose(result_sparse, result_dense)
 
+  def testSparseScan(self):
+    pass
+
+
 
 if __name__ == "__main__":
   absltest.main(testLoader=jtu.JaxTestLoader())
