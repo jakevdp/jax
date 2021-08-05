@@ -427,15 +427,7 @@ MIXED_ADVANCED_INDEXING_TESTS = MIXED_ADVANCED_INDEXING_TESTS_NO_REPEATS + [
 
 class IndexingTest(jtu.JaxTestCase):
   """Tests for Numpy indexing translation rules."""
-
-  def setUp(self):
-    super().setUp()
-    self._jax_numpy_rank_promotion = config.jax_numpy_rank_promotion
-    config.update("jax_numpy_rank_promotion", "raise")
-
-  def tearDown(self):
-    config.update("jax_numpy_rank_promotion", self._jax_numpy_rank_promotion)
-    super().tearDown()
+  _jax_numpy_rank_promotion = "raise"
 
   @parameterized.named_parameters(jtu.cases_from_list({
       "testcase_name": "{}_inshape={}_indexer={}".format(
@@ -948,15 +940,7 @@ class UpdateOps(enum.Enum):
       return default_dtypes
 
 class IndexedUpdateTest(jtu.JaxTestCase):
-
-  def setUp(self):
-    super().setUp()
-    self._jax_numpy_rank_promotion = config.jax_numpy_rank_promotion
-    config.update("jax_numpy_rank_promotion", "raise")
-
-  def tearDown(self):
-    config.update("jax_numpy_rank_promotion", self._jax_numpy_rank_promotion)
-    super().tearDown()
+  _jax_numpy_rank_promotion = "raise"
 
   @parameterized.named_parameters(jtu.named_cases_from_sampler(lambda s: ({
       "testcase_name": "{}_inshape={}_indexer={}_update={}_sugared={}_op={}".format(

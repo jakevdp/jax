@@ -65,15 +65,7 @@ def zakharovFromIndices(x, ii):
 
 
 class TestBFGS(jtu.JaxTestCase):
-
-  def setUp(self):
-    super().setUp()
-    self._jax_numpy_rank_promotion = config.jax_numpy_rank_promotion
-    config.update("jax_numpy_rank_promotion", "raise")
-
-  def tearDown(self):
-    config.update("jax_numpy_rank_promotion", self._jax_numpy_rank_promotion)
-    super().tearDown()
+  _jax_numpy_rank_promotion = "raise"
 
   @parameterized.named_parameters(jtu.cases_from_list(
     {"testcase_name": "_func={}_maxiter={}".format(func_and_init[0].__name__, maxiter),
@@ -150,15 +142,7 @@ class TestBFGS(jtu.JaxTestCase):
 
 
 class TestLBFGS(jtu.JaxTestCase):
-
-  def setUp(self):
-    super().setUp()
-    self._jax_numpy_rank_promotion = config.jax_numpy_rank_promotion
-    config.update("jax_numpy_rank_promotion", "raise")
-
-  def tearDown(self):
-    config.update("jax_numpy_rank_promotion", self._jax_numpy_rank_promotion)
-    super().tearDown()
+  _jax_numpy_rank_promotion = "raise"
 
   @parameterized.named_parameters(jtu.cases_from_list(
     {"testcase_name": "_func={}_maxiter={}".format(func_and_init[0].__name__, maxiter),

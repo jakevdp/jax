@@ -503,15 +503,7 @@ def _promote_like_jnp(fun, inexact=False):
 
 class LaxBackedNumpyTests(jtu.JaxTestCase):
   """Tests for LAX-backed Numpy implementation."""
-
-  def setUp(self):
-    super().setUp()
-    self._jax_numpy_rank_promotion = config.jax_numpy_rank_promotion
-    config.update("jax_numpy_rank_promotion", "raise")
-
-  def tearDown(self):
-    config.update("jax_numpy_rank_promotion", self._jax_numpy_rank_promotion)
-    super().tearDown()
+  _jax_numpy_rank_promotion = "raise"
 
   def _GetArgsMaker(self, rng, shapes, dtypes, np_arrays=True):
     def f():
@@ -5493,15 +5485,7 @@ GRAD_SPECIAL_VALUE_TEST_RECORDS = [
 ]
 
 class NumpyGradTests(jtu.JaxTestCase):
-
-  def setUp(self):
-    super().setUp()
-    self._jax_numpy_rank_promotion = config.jax_numpy_rank_promotion
-    config.update("jax_numpy_rank_promotion", "raise")
-
-  def tearDown(self):
-    config.update("jax_numpy_rank_promotion", self._jax_numpy_rank_promotion)
-    super().tearDown()
+  _jax_numpy_rank_promotion = "raise"
 
   @parameterized.named_parameters(itertools.chain.from_iterable(
       jtu.cases_from_list(
@@ -5606,15 +5590,7 @@ class NumpyGradTests(jtu.JaxTestCase):
     check_grads(jnp.logaddexp2, args, 1, ["fwd", "rev"], tol, tol)
 
 class NumpySignaturesTest(jtu.JaxTestCase):
-
-  def setUp(self):
-    super().setUp()
-    self._jax_numpy_rank_promotion = config.jax_numpy_rank_promotion
-    config.update("jax_numpy_rank_promotion", "raise")
-
-  def tearDown(self):
-    config.update("jax_numpy_rank_promotion", self._jax_numpy_rank_promotion)
-    super().tearDown()
+  _jax_numpy_rank_promotion = "raise"
 
   def testWrappedSignaturesMatch(self):
     """Test that jax.numpy function signatures match numpy."""
@@ -5733,15 +5709,7 @@ def _dtypes_for_ufunc(name: str) -> Iterator[Tuple[str, ...]]:
 
 
 class NumpyUfuncTests(jtu.JaxTestCase):
-
-  def setUp(self):
-    super().setUp()
-    self._jax_numpy_rank_promotion = config.jax_numpy_rank_promotion
-    config.update("jax_numpy_rank_promotion", "raise")
-
-  def tearDown(self):
-    config.update("jax_numpy_rank_promotion", self._jax_numpy_rank_promotion)
-    super().tearDown()
+  _jax_numpy_rank_promotion = "raise"
 
   @parameterized.named_parameters(
     {"testcase_name": f"_{name}_{','.join(arg_dtypes)}",
@@ -5775,15 +5743,7 @@ class NumpyUfuncTests(jtu.JaxTestCase):
     self._CheckAgainstNumpy(np_op, jnp_op, args_maker, check_dtypes=False, tol=1E-2)
 
 class NumpyDocTests(jtu.JaxTestCase):
-
-  def setUp(self):
-    super().setUp()
-    self._jax_numpy_rank_promotion = config.jax_numpy_rank_promotion
-    config.update("jax_numpy_rank_promotion", "raise")
-
-  def tearDown(self):
-    config.update("jax_numpy_rank_promotion", self._jax_numpy_rank_promotion)
-    super().tearDown()
+  _jax_numpy_rank_promotion = "raise"
 
   def test_lax_numpy_docstrings(self):
     # Test that docstring wrapping & transformation didn't fail.

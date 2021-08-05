@@ -872,6 +872,7 @@ class JaxTestLoader(absltest.TestLoader):
 
 class JaxTestCase(parameterized.TestCase):
   """Base class for JAX tests including numerical checks and boilerplate."""
+  _jax_numpy_rank_promotion = None
 
   # TODO(mattjj): this obscures the error messages from failures, figure out how
   # to re-enable it
@@ -881,6 +882,9 @@ class JaxTestCase(parameterized.TestCase):
   def setUp(self):
     super(JaxTestCase, self).setUp()
     config.update('jax_enable_checks', True)
+    if self._jax_numpy_rank_promotion is not None:
+      config.update("jax_numpy_rank_promotion", self._jax_numpy_rank_promotion)
+
     # We use the adler32 hash for two reasons.
     # a) it is deterministic run to run, unlike hash() which is randomized.
     # b) it returns values in int32 range, which RandomState requires.
