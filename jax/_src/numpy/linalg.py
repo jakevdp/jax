@@ -121,7 +121,7 @@ def slogdet(a):
   lu, pivot, _ = lax_linalg.lu(a)
   diag = jnp.diagonal(lu, axis1=-2, axis2=-1)
   is_zero = jnp.any(diag == jnp.array(0, dtype=dtype), axis=-1)
-  parity = jnp.count_nonzero(pivot != jnp.arange(a_shape[-1]), axis=-1)
+  parity = jnp.count_nonzero(pivot != lax.broadcasted_iota(pivot.dtype, pivot.shape, pivot.ndim - 1), axis=-1)
   if jnp.iscomplexobj(a):
     sign = jnp.prod(diag / jnp.abs(diag), axis=-1)
   else:

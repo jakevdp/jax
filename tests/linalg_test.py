@@ -44,6 +44,7 @@ complex_types = [np.complex64, np.complex128]
 
 
 class NumpyLinalgTest(jtu.JaxTestCase):
+  _jax_numpy_rank_promotion = 'raise'
 
   def testNotImplemented(self):
     for name in jnp.linalg._NOT_IMPLEMENTED:
@@ -986,6 +987,7 @@ class NumpyLinalgTest(jtu.JaxTestCase):
 
 
 class ScipyLinalgTest(jtu.JaxTestCase):
+  _jax_numpy_rank_promotion = 'raise'
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {"testcase_name": "_i={}".format(i), "args": args}
@@ -1414,6 +1416,7 @@ class ScipyLinalgTest(jtu.JaxTestCase):
                       rtol=tol)
 
 class LaxLinalgTest(jtu.JaxTestCase):
+  _jax_numpy_rank_promotion = 'raise'
 
   def run_test(self, alpha, beta):
     n = alpha.shape[-1]

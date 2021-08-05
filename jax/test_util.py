@@ -872,7 +872,7 @@ class JaxTestLoader(absltest.TestLoader):
 
 class JaxTestCase(parameterized.TestCase):
   """Base class for JAX tests including numerical checks and boilerplate."""
-  _jax_numpy_rank_promotion = None
+  _jax_numpy_rank_promotion = "raise"
 
   # TODO(mattjj): this obscures the error messages from failures, figure out how
   # to re-enable it

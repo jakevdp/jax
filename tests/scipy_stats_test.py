@@ -45,6 +45,7 @@ def genNamedParametersNArgs(n):
 
 class LaxBackedScipyStatsTests(jtu.JaxTestCase):
   """Tests for LAX-backed scipy.stats implementations"""
+  _jax_numpy_rank_promotion = "allow"  # Every test here uses implicit rank promotion.
 
   @genNamedParametersNArgs(3)
   def testPoissonLogPmf(self, shapes, dtypes):
