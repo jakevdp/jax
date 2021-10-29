@@ -1804,10 +1804,10 @@ class HostCallbackTapTest(jtu.JaxTestCase):
 
     def loss(k=1.0):
       t = jnp.linspace(0, 0.001, num=2)
-      xs = odeint(f, 1.0, t, k)
+      xs = odeint(f, jnp.float32(1.0), t, k)
       return xs[-1]
 
-    jax.grad(loss)(1.0)  # should not fail
+    jax.grad(loss)(jnp.float32(1.0))  # should not fail
 
   def test_tap_remat_0(self):
     def f(i, k):

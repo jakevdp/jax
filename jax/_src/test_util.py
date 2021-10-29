@@ -1095,6 +1095,26 @@ class _cached_property:
     return self._value
 
 
+def with_32bit_outputs(f):
+  """Decorator to make a numpy function return 32-bit outputs."""
+  _typemap = {
+    np.dtype('uint64'): np.dtype('uint32'),
+    np.dtype('int64'): np.dtype('int32'),
+    np.dtype('float64'): np.dtype('float32'),
+    np.dtype('complex128'): np.dtype('complex64'),
+  }
+  def _convert_to_32bit(x):
+    if isinstance(x, np.ndarray) and x.dtype in _typemap:
+      return(x.astype(_typemap[x.dtype]))
+    return x
+  @functools.wraps(f)
+  def wrapped(*args, **kwargs):
+    out = f(*args, **kwargs)
+    return tree_map(_convert_to_32bit, out)
+  return wrapped
+
+
+
 class _LazyDtypes:
   """A class that unifies lists of supported dtypes.
 

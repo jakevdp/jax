@@ -39,19 +39,13 @@ bfloat16: type = xla_client.bfloat16
 _bfloat16_dtype: np.dtype = np.dtype(bfloat16)
 
 # Default types.
-
 bool_: type = np.bool_
-int_: type = np.int64
-float_: type = np.float64
-complex_: type = np.complex128
-
-# TODO(phawkins): change the above defaults to:
-# int_ = np.int32
-# float_ = np.float32
-# complex_ = np.complex64
+int_: type = np.int32
+float_: type = np.float32
+complex_: type = np.complex64
 
 # Trivial vectorspace datatype needed for tangent values of int/bool primals
-float0 = np.dtype([('float0', np.void, 0)])
+float0: np.dtype = np.dtype([('float0', np.void, 0)])
 
 _dtype_to_32bit_dtype = {
     np.dtype('int64'): np.dtype('int32'),
@@ -76,10 +70,10 @@ def canonicalize_dtype(dtype):
 
 # Default dtypes corresponding to Python scalars.
 python_scalar_dtypes : dict = {
-  bool: np.dtype(bool_),
-  int: np.dtype(int_),
-  float: np.dtype(float_),
-  complex: np.dtype(complex_),
+  bool: np.dtype('bool'),
+  int: np.dtype('int64'),
+  float: np.dtype('float64'),
+  complex: np.dtype('complex128'),
 }
 
 def scalar_type_of(x):

@@ -34,7 +34,7 @@ def enable_x64(new_val: bool = True):
 
     >>> import jax.numpy as jnp
     >>> with enable_x64():
-    ...   print(jnp.arange(10.0).dtype)
+    ...   print(jnp.arange(10.0, dtype=float).dtype)
     ...
     float64
 
@@ -53,7 +53,7 @@ def disable_x64():
 
     >>> import jax.numpy as jnp
     >>> with disable_x64():
-    ...   print(jnp.arange(10.0).dtype)
+    ...   print(jnp.arange(10.0, dtype=float).dtype)
     ...
     float32
 

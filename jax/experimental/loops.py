@@ -113,12 +113,23 @@ import traceback
 from typing import Any, Dict, List, cast
 
 from jax import lax, core
+from jax._src.dtypes import _lattice_result_type, canonicalize_dtype
 from jax._src.lax import control_flow as lax_control_flow
 from jax import tree_util
 from jax import numpy as jnp
 from jax.errors import UnexpectedTracerError
 from jax.interpreters import partial_eval as pe
 from jax._src.util import safe_map
+
+
+def _arange_with_weak_type(start, stop, step):
+  """jnp.arange() with dtype/weak_type similar to range()"""
+  dtype, weak_type = _lattice_result_type(
+    start, *(s for s in [stop, step] if s is not None)
+  )
+  return lax._convert_element_type(
+    jnp.arange(start, stop, step, dtype=canonicalize_dtype(dtype)),
+    weak_type=weak_type)
 
 
 class Scope(object):
@@ -500,7 +511,7 @@ class _BoundedLoopBuilder(_LoopBuilder):
 
   def build_output_vals(self, scope, carried_state_names, carried_tree,
                         init_vals, body_closed_jaxpr, body_const_vals):
-    arange_val = jnp.arange(self.start, stop=self.stop, step=self.step)
+    arange_val = _arange_with_weak_type(self.start, self.stop, self.step)
     return lax_control_flow.scan_p.bind(*body_const_vals, *init_vals, arange_val,
                                         reverse=False, length=arange_val.shape[0],
                                         jaxpr=body_closed_jaxpr,

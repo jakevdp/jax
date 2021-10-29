@@ -314,7 +314,7 @@ class LaxControlFlowTest(jtu.JaxTestCase):
       def body_fun(state):
         arr, num, i, total = state
         arr_i = lax.dynamic_index_in_dim(arr, i, 0, False)
-        return (arr, num, lax.add(i, 1), lax.add(total, arr_i))
+        return (arr, num, jnp.add(i, 1), jnp.add(total, arr_i))
 
       init_val = (arr, num, 0, 0.)
       _, _, _, total = lax.while_loop(cond_fun, body_fun, init_val)
@@ -498,7 +498,7 @@ class LaxControlFlowTest(jtu.JaxTestCase):
       def body_fun(i, state):
         arr, total = state
         arr_i = lax.dynamic_index_in_dim(arr, i, 0, False)
-        return (arr, lax.add(total, arr_i))
+        return (arr, jnp.add(total, arr_i))
 
       init_val = (arr, 0.)
       _, total = lax.fori_loop(0, lax.min(arr.shape[0], num), body_fun,
@@ -519,7 +519,7 @@ class LaxControlFlowTest(jtu.JaxTestCase):
       def body_fun(i, state):
         arr, total = state['arr'], state['total']
         arr_i = lax.dynamic_index_in_dim(arr, i, 0, False)
-        return {'arr': arr, 'total': lax.add(total, arr_i)}
+        return {'arr': arr, 'total': jnp.add(total, arr_i)}
 
       init_val = {'arr': arr, 'total': 0.}
       out_val = lax.fori_loop(0, lax.min(arr.shape[0], num), body_fun, init_val)
@@ -539,7 +539,7 @@ class LaxControlFlowTest(jtu.JaxTestCase):
       def body_fun(i, state):
         arr, total, _ = state
         arr_i = lax.dynamic_index_in_dim(arr, i, 0, False)
-        return (arr, lax.add(total, arr_i), ())
+        return (arr, jnp.add(total, arr_i), ())
 
       init_val = (arr, 0., ())
       _, tot, _ = lax.fori_loop(0, lax.min(arr.shape[0], num), body_fun, init_val)
@@ -840,7 +840,7 @@ class LaxControlFlowTest(jtu.JaxTestCase):
       return lax.cond(pred, y, true_fun, z, false_fun)
 
     # these cases stay as cond
-    x = jnp.array(2)
+    x = 2
     y = jnp.array([1, 2])
     z = jnp.array([3, 4])
     ans = jax.vmap(fun, (None, 0, 0))(x, y, z)
@@ -849,28 +849,28 @@ class LaxControlFlowTest(jtu.JaxTestCase):
     self.assertAllClose(ans, expected, check_dtypes=False)
     assert "select" not in str(jaxpr)
 
-    x = jnp.array(4)
+    x = 4
     ans = jax.vmap(fun, (None, 0, 0))(x, y, z)
     jaxpr = jax.make_jaxpr(jax.vmap(fun, (None, 0, 0)))(x, y, z)
-    expected = np.array([-3, -4])
+    expected = np.array([-3, -4], dtype='int32')
     self.assertAllClose(ans, expected, check_dtypes=False)
     assert "select" not in str(jaxpr)
 
     fun = jax.jit(fun)
     ans = jax.vmap(fun, (None, 0, 0))(x, y, z)
-    expected = np.array([-3, -4])
+    expected = np.array([-3, -4], dtype='int32')
     self.assertAllClose(ans, expected, check_dtypes=False)
 
-    z = jnp.array(5)
+    z = jnp.int32(5)
     ans = jax.vmap(fun, (None, 0, None))(x, y, z)
     jaxpr = jax.make_jaxpr(jax.vmap(fun, (None, 0, None)))(x, y, z)
-    expected = np.array([-5, -5])
+    expected = np.array([-5, -5], dtype='int32')
     self.assertAllClose(ans, expected, check_dtypes=False)
     assert "select" not in str(jaxpr)
 
 
     # these cases become select
-    x = jnp.array([2, 4])
+    x = np.array([2, 4])
     ans = jax.vmap(fun, (0, 0, None))(x, y, z)
     jaxpr = jax.make_jaxpr(jax.vmap(fun, (0, 0, None)))(x, y, z)
     expected = np.array([1, -5])
@@ -895,30 +895,30 @@ class LaxControlFlowTest(jtu.JaxTestCase):
     x = jnp.array(0)
     y = jnp.array([1, 2])
     z = jnp.array([3, 4])
-    w = jnp.array(9)
+    w = jnp.int32(9)
     ans = jax.vmap(fun, (None, 0, 0, None))(x, y, z, w)
     jaxpr = jax.make_jaxpr(jax.vmap(fun, (None, 0, 0, None)))(x, y, z, w)
-    expected = np.array([1, 2])
-    self.assertAllClose(ans, expected, check_dtypes=False)
+    expected = jnp.array([1, 2])
+    self.assertAllClose(ans, expected)
     assert "select" not in str(jaxpr)
 
     x = jnp.array(1)
     ans = jax.vmap(fun, (None, 0, 0, None))(x, y, z, w)
     jaxpr = jax.make_jaxpr(jax.vmap(fun, (None, 0, 0, None)))(x, y, z, w)
-    expected = np.array([-3, -4])
-    self.assertAllClose(ans, expected, check_dtypes=False)
+    expected = jnp.array([-3, -4])
+    self.assertAllClose(ans, expected)
     assert "select" not in str(jaxpr)
 
     fun = jax.jit(fun)
     ans = jax.vmap(fun, (None, 0, 0, None))(x, y, z, w)
-    expected = np.array([-3, -4])
-    self.assertAllClose(ans, expected, check_dtypes=False)
+    expected = jnp.array([-3, -4])
+    self.assertAllClose(ans, expected)
 
-    z = jnp.array(5)
+    z = jnp.int32(5)
     ans = jax.vmap(fun, (None, 0, None, None))(x, y, z, w)
     jaxpr = jax.make_jaxpr(jax.vmap(fun, (None, 0, None, None)))(x, y, z, w)
-    expected = np.array([-5, -5])
-    self.assertAllClose(ans, expected, check_dtypes=False)
+    expected = jnp.array([-5, -5])
+    self.assertAllClose(ans, expected)
     assert "select" not in str(jaxpr)
 
 
@@ -926,16 +926,16 @@ class LaxControlFlowTest(jtu.JaxTestCase):
     x = jnp.array([0, 1])
     ans = jax.vmap(fun, (0, 0, None, None))(x, y, z, w)
     jaxpr = jax.make_jaxpr(jax.vmap(fun, (0, 0, None, None)))(x, y, z, w)
-    expected = np.array([1, -5])
-    self.assertAllClose(ans, expected, check_dtypes=False)
+    expected = jnp.array([1, -5])
+    self.assertAllClose(ans, expected)
     assert "select" in str(jaxpr)
 
     z = jnp.array([3, 4])
     w = jnp.array([9, 9])
     ans = jax.vmap(fun)(x, y, z, w)
     jaxpr = jax.make_jaxpr(jax.vmap(fun))(x, y, z, w)
-    expected = np.array([1, -4])
-    self.assertAllClose(ans, expected, check_dtypes=False)
+    expected = jnp.array([1, -4])
+    self.assertAllClose(ans, expected)
     assert "select" in str(jaxpr)
 
   def testCondJVP(self):
@@ -1070,12 +1070,9 @@ class LaxControlFlowTest(jtu.JaxTestCase):
       jtu.check_grads(f, (x,), order=2, modes=["fwd", "rev"])
 
   def testSwitchGradWithWeakTypeMismatch(self):  # issue #4696, PR #4896
-    dtype = jnp.ones(1).dtype
-    dtype = jnp.float32 if dtype == jnp.float32 else jnp.float64
-
     branches = [
-        lambda x: x,             # This preserves the weak type of x.
-        lambda x: x + dtype(1),  # This strips the weak type of x.
+        lambda x: x,
+        lambda x: lax._convert_element_type(x, weak_type=False),
     ]
 
     def f_ref(x):
@@ -1663,7 +1660,7 @@ class LaxControlFlowTest(jtu.JaxTestCase):
     c = 1.
 
     jtu.check_grads(lambda c, as_: scan(f, c, as_), (c, as_),
-                    modes=["rev"], order=2, rtol={np.float32: 6e-3})
+                    modes=["rev"], order=2, rtol=6E-3)
 
   @parameterized.named_parameters(
       {"testcase_name": "_jit_scan={}_jit_f={}_in_axes={}_impl={}".format(
@@ -1741,8 +1738,8 @@ class LaxControlFlowTest(jtu.JaxTestCase):
       def scan_body(c, x):
         # The carry is a 4-tuple, the last element starts batched,
         # and the carry is shifted left at each iteration.
-        return ((c[1], c[2], c[3], 0.), None)
-      return lax.scan(scan_body, (0., 1., 2., carry_init), jnp.zeros(2))
+        return ((c[1], c[2], c[3], jnp.float32(0)), None)
+      return lax.scan(scan_body, (*jnp.array([0., 1., 2.]), carry_init), jnp.zeros(2))
     carry_init = jnp.array([3., 4., 5.])
     carry_out, _ = jax.vmap(f)(carry_init)
     self.assertAllClose(carry_out[3], jnp.array([0., 0., 0.]), check_dtypes=False)
@@ -2367,16 +2364,18 @@ class LaxControlFlowTest(jtu.JaxTestCase):
           partial(unrolled_substitution_solve, lower_tri=True),
           partial(unrolled_substitution_solve, lower_tri=False))
 
-    mat = [[1.0, None, None, None, None, None, None],
-           [1.0, 1.0, None, None, None, None, None],
-           [None, 1.0, 1.0, None, None, None, None],
-           [None, None, 1.0, 1.0, None, None, None],
-           [None, None, None, 1.0, 1.0, None, None],
-           [None, None, None, None, None, 2.0, None],
-           [None, None, None, None, None, 4.0, 3.0]]
+    one, two, three, four = map(jnp.float32, [1, 2, 3, 4])
+
+    mat = [[one, None, None, None, None, None, None],
+           [one, one, None, None, None, None, None],
+           [None, one, one, None, None, None, None],
+           [None, None, one, one, None, None, None],
+           [None, None, None, one, one, None, None],
+           [None, None, None, None, None, two, None],
+           [None, None, None, None, None, four, three]]
 
     rng = np.random.RandomState(0)
-    b = list(rng.randn(7))
+    b = list(rng.randn(7).astype('float32'))
 
     # Non-batched
     jtu.check_grads(custom_unrolled_lower_tri_solve, (mat, b), order=2,
@@ -2385,7 +2384,7 @@ class LaxControlFlowTest(jtu.JaxTestCase):
     # Batch one element of b (which, because of unrolling, should only affect
     # the first block of outputs)
     b_bat = list(b)
-    b_bat[3] = rng.randn(3)
+    b_bat[3] = rng.randn(3).astype('float32')
     jtu.check_grads(
         jax.vmap(
             custom_unrolled_lower_tri_solve,
@@ -2395,7 +2394,7 @@ class LaxControlFlowTest(jtu.JaxTestCase):
         rtol={jnp.float32: 1e-2})
 
     # Batch one element of mat (again only affecting first block)
-    mat[2][1] = rng.randn(3)
+    mat[2][1] = rng.randn(3).astype('float32')
     mat_axis_tree = [
         [0 if i == 2 and j == 1 else None for j in range(7)] for i in range(7)
     ]
@@ -2547,7 +2546,7 @@ class LaxControlFlowTest(jtu.JaxTestCase):
 
   def test_vmaps_of_while_loop(self):
     # https://github.com/google/jax/issues/3164
-    def f(x, n): return lax.fori_loop(0, n, lambda _, x: x + 1, x)
+    def f(x, n): return lax.fori_loop(lax._const(n, 0), n, lambda _, x: x + 1, x)
     x, n = jnp.arange(3), jnp.arange(4)
     jax.vmap(jax.vmap(f, (None, 0)), (0, None))(x, n)  # doesn't crash
 

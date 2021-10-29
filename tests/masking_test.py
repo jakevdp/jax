@@ -232,7 +232,7 @@ class MaskingTest(jtu.JaxTestCase):
       out, _ = lax.scan(lambda c, x: (c + x, ()), 0, arr)
       return out
 
-    ans = cumsum([jnp.array([5, 2, 9, 1, 4])], dict(n=3))
+    ans = cumsum([jnp.array([5, 2, 9, 1, 4])], dict(n=jnp.int32(3)))
     expected = 16
     self.assertAllClose(ans, expected, check_dtypes=False)
 
@@ -258,17 +258,17 @@ class MaskingTest(jtu.JaxTestCase):
       return cumsum(args, shape_env)
 
     python_should_be_executing = True
-    ans = jit_cumsum([jnp.array([5, 2, 9, 1, 4])], dict(n=3))
+    ans = jit_cumsum([jnp.array([5, 2, 9, 1, 4])], dict(n=jnp.int32(3)))
     expected = 16
     self.assertAllClose(ans, expected, check_dtypes=False)
 
     python_should_be_executing = False
-    ans = jit_cumsum([jnp.array([5, 2, 9, 1, 4])], dict(n=4))
+    ans = jit_cumsum([jnp.array([5, 2, 9, 1, 4])], dict(n=jnp.int32(4)))
     expected = 17
     self.assertAllClose(ans, expected, check_dtypes=False)
 
     python_should_be_executing = False
-    ans = jit_cumsum([jnp.array([5, 2, 9, 1, 4])], dict(n=1))
+    ans = jit_cumsum([jnp.array([5, 2, 9, 1, 4])], dict(n=jnp.int32(1)))
     expected = 5
     self.assertAllClose(ans, expected, check_dtypes=False)
 
@@ -352,7 +352,7 @@ class MaskingTest(jtu.JaxTestCase):
     rng = np.random.RandomState(0)
     W = jnp.eye(n)
     xs = rng.randn(10, n).astype(jnp.float_)
-    ans = rnn([W, xs], dict(t=4))
+    ans = rnn([W, xs], dict(t=jnp.int_(4)))
     expected = xs[:4].sum(0)
     self.assertAllClose(ans, expected, check_dtypes=False)
 
@@ -372,7 +372,7 @@ class MaskingTest(jtu.JaxTestCase):
     xs = rng.randn(10, n).astype(jnp.float_)
     y = rng.randn(n).astype(jnp.float_)
 
-    ans = grad(lambda W: rnn([W, xs, y], dict(t=4)))(W)
+    ans = grad(lambda W: rnn([W, xs, y], dict(t=jnp.int32(4))))(W)
 
     def rnn_reference(W, xs, target):
       h = jnp.zeros(n)

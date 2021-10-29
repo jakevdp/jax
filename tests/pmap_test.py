@@ -2304,7 +2304,7 @@ class ShardedDeviceArrayTest(jtu.JaxTestCase):
   def test_device_put_sharded_pytree(self):
     devices = jax.local_devices()
     n_devices = len(devices)
-    x = [(i, np.arange(i, i + 4)) for i in range(n_devices)]
+    x = [(jnp.int32(i), jnp.arange(i, i + 4)) for i in range(n_devices)]
     y1, y2 = jax.device_put_sharded(x, devices)
     self.assertIsInstance(y1, pxla.ShardedDeviceArray)
     self.assertArraysEqual(y1, jnp.array([a for a, _ in x]))

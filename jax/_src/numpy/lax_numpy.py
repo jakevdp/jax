@@ -417,9 +417,9 @@ float64 = double = _make_scalar_type(np.float64)
 complex64 = csingle = _make_scalar_type(np.complex64)
 complex128 = cdouble = _make_scalar_type(np.complex128)
 
-int_ = int32 if dtypes.int_ == np.int32 else int64
-float_ = float32 if dtypes.float_ == np.float32 else float64
-complex_ = complex64 if dtypes.complex_ == np.complex64 else complex128
+int_ = int32
+float_ = float32
+complex_ = complex64
 
 number = np.number
 inexact = np.inexact
@@ -3724,21 +3724,37 @@ def identity(n, dtype=None):
   return eye(n, dtype=dtype)
 
 
+def _jnp_dtype(*args):
+  # like _dtype, but Python scalars are treated as default dtypes.
+  _dtypes = []
+  for arg in args:
+    dtype = _dtype(arg)
+    if dtypes.is_python_scalar(arg):
+      _dtypes.append(_DEFAULT_TYPEMAP.get(dtype.type, dtype))
+    else:
+      _dtypes.append(dtype)
+  return _dtype(*_dtypes)
+
 @_wraps(np.arange)
 def arange(start, stop=None, step=None, dtype=None):
   lax._check_user_dtype_supported(dtype, "arange")
-  require = partial(core.concrete_or_error, _np_asarray)
+  require = partial(core.concrete_or_error, None)
   msg = "It arose in jax.numpy.arange argument `{}`.".format
   if stop is None and step is None:
     start = require(start, msg("stop"))
-    dtype = dtype or _dtype(start)
+    dtype = dtype or _jnp_dtype(start)
     return lax.iota(dtype, np.ceil(start).astype(int)) # avoids materializing
   else:
     start = require(start, msg("start"))
     stop = None if stop is None else require(stop, msg("stop"))
     step = None if step is None else require(step, msg("step"))
     if dtype is None:
-      dtype = _dtype(start, *(x for x in [stop, step] if x is not None))
+      dtype = _jnp_dtype(start, *(x for x in [stop, step] if x is not None))
+    # Do we need this?
+    # dtype = np.dtype(dtype)
+    # start = dtype.type(start)
+    # stop = None if stop is None else dtype.type(stop)
+    # step = None if step is None else dtype.type(step)
     return array(np.arange(start, stop=stop, step=step, dtype=dtype))
 
 

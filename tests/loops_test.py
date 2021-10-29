@@ -63,7 +63,7 @@ class LoopsTest(jtu.JaxTestCase):
     self.assertAllClose(5., jax.grad(f_op)(2.))
     inc_batch = np.arange(5.0)
     self.assertAllClose(jnp.array([f_expected(inc) for inc in inc_batch]),
-                        jax.vmap(f_op)(inc_batch))
+                        jax.vmap(f_op)(inc_batch), check_dtypes=False)
 
 
   def test_loop_2(self):

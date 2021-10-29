@@ -143,18 +143,11 @@ class PrngTest(jtu.JaxTestCase):
     # Test to ensure consistent random values between JAX versions
     k = random.PRNGKey(0)
 
-    if config.x64_enabled:
-        self.assertAllClose(
-            random.randint(k, (3, 3), 0, 8),
-            np.array([[7, 2, 6],
-                       [2, 1, 0],
-                       [6, 7, 7]], dtype='int64'))
-    else:
-        self.assertAllClose(
-            random.randint(k, (3, 3), 0, 8),
-            np.array([[2, 1, 3],
-                       [6, 1, 5],
-                       [6, 3, 4]], dtype='int32'))
+    self.assertAllClose(
+        random.randint(k, (3, 3), 0, 8),
+        np.array([[2, 1, 3],
+                    [6, 1, 5],
+                    [6, 3, 4]], dtype='int32'))
 
     self.assertAllClose(
         _prng_key_as_array(random.split(k, 4)),
@@ -899,10 +892,7 @@ class LaxRandomTest(jtu.JaxTestCase):
   def testIssue756(self):
     key = self.seed_prng(0)
     w = random.normal(key, ())
-    if config.x64_enabled:
-      self.assertEqual(np.result_type(w), np.float64)
-    else:
-      self.assertEqual(np.result_type(w), np.float32)
+    self.assertEqual(np.result_type(w), np.float32)
 
   def testIssue1789(self):
     def f(x):
@@ -932,8 +922,8 @@ class LaxRandomTest(jtu.JaxTestCase):
     rand = lambda x: random.maxwell(x, (num_samples, ))
     crand = jax.jit(rand)
 
-    loc = scipy.stats.maxwell.mean()
-    std = scipy.stats.maxwell.std()
+    loc = scipy.stats.maxwell.mean().astype('float32')
+    std = scipy.stats.maxwell.std().astype('float32')
 
     uncompiled_samples = rand(rng)
     compiled_samples = crand(rng)
@@ -946,8 +936,8 @@ class LaxRandomTest(jtu.JaxTestCase):
       self._CheckKolmogorovSmirnovCDF(samples, scipy.stats.maxwell().cdf)
 
   @parameterized.named_parameters(
-      ('test1', 4.0, 1.0),
-      ('test2', 2.0, 3.0))
+      ('_test1', 4.0, 1.0),
+      ('_test2', 2.0, 3.0))
   def testWeibullSample(self, concentration, scale):
     num_samples = 10**5
     rng = self.seed_prng(0)
@@ -955,8 +945,8 @@ class LaxRandomTest(jtu.JaxTestCase):
     rand = lambda x: random.weibull_min(x, scale, concentration, (num_samples,))
     crand = jax.jit(rand)
 
-    loc = scipy.stats.weibull_min.mean(c=concentration, scale=scale)
-    std = scipy.stats.weibull_min.std(c=concentration, scale=scale)
+    loc = scipy.stats.weibull_min.mean(c=concentration, scale=scale).astype('float32')
+    std = scipy.stats.weibull_min.std(c=concentration, scale=scale).astype('float32')
 
     uncompiled_samples = rand(rng)
     compiled_samples = crand(rng)
@@ -970,8 +960,8 @@ class LaxRandomTest(jtu.JaxTestCase):
           c=concentration, scale=scale).cdf)
 
   @parameterized.named_parameters(
-      ('test1', 4.0, 1.0),
-      ('test2', 2.0, 3.0))
+      ('_test1', 4.0, 1.0),
+      ('_test2', 2.0, 3.0))
   def testDoublesidedMaxwellSample(self, loc, scale):
     num_samples = 10**5
     rng = self.seed_prng(0)
@@ -980,8 +970,8 @@ class LaxRandomTest(jtu.JaxTestCase):
         rng, loc, scale, (num_samples,))
     crand = jax.jit(rand)
 
-    mean = loc
-    std = np.sqrt(3.) * scale
+    mean = np.float32(loc)
+    std = np.float32(np.sqrt(3.) * scale)
 
     uncompiled_samples = rand(rng)
     compiled_samples = crand(rng)

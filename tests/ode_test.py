@@ -162,8 +162,9 @@ class ODETest(jtu.JaxTestCase):
       y = jax.vmap(lambda y0: odeint(dx_dt, y0, t))(y0_arr)
       return y[:,-1].sum()
 
-    ans = jax.grad(g)(2.)  # don't crash
-    expected = jax.grad(f, 0)(2., 0.1) + jax.grad(f, 0)(2., 0.2)
+    ans = jax.grad(g)(jnp.float32(2.))  # don't crash
+    expected = (jax.grad(f, 0)(jnp.float32(2.), jnp.float32(0.1)) +
+                jax.grad(f, 0)(jnp.float32(2.), jnp.float32(0.2)))
 
     atol = {jnp.float64: 5e-15}
     rtol = {jnp.float64: 2e-15}
@@ -214,7 +215,7 @@ class ODETest(jtu.JaxTestCase):
     # https://github.com/google/jax/issues/3558
 
     def f(k):
-      return odeint(lambda x, t: k*x, 1.,  jnp.linspace(0, 1., 50)).sum()
+      return odeint(lambda x, t: k*x, jnp.float32(1.),  jnp.linspace(0, 1., 50)).sum()
 
     with self.assertRaisesRegex(TypeError, "can't apply forward-mode.*"):
       jax.jacfwd(f)(3.)
@@ -244,8 +245,8 @@ class ODETest(jtu.JaxTestCase):
 
     alpha = 3 + 4j
     y0 = 1 + 2j
-    ts = jnp.linspace(0., 1., 11)
-    tol = 1e-1 if jtu.num_float_bits(np.float64) == 32 else 1e-3
+    ts = jnp.linspace(0., 1., 11, dtype=jnp.finfo(jnp.result_type(y0)).dtype)
+    tol = {np.float32: 1e-1, np.float64: 1e-3}
 
     jtu.check_grads(f, (y0, ts, alpha), modes=["rev"], order=2, atol=tol, rtol=tol)
 

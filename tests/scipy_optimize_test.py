@@ -71,10 +71,10 @@ class TestBFGS(jtu.JaxTestCase):
     {"testcase_name": "_func={}_maxiter={}".format(func_and_init[0].__name__, maxiter),
      "maxiter": maxiter, "func_and_init": func_and_init}
     for maxiter in [None]
-    for func_and_init in [(rosenbrock, np.zeros(2)),
+    for func_and_init in [(rosenbrock, np.zeros(2,)),
                           (himmelblau, np.zeros(2)),
-                          (matyas, np.ones(2) * 6.),
-                          (eggholder, np.ones(2) * 100.)]))
+                          (matyas, np.full(2, 6.)),
+                          (eggholder, np.full(2, 100.))]))
   def test_minimize(self, maxiter, func_and_init):
     # Note, cannot compare step for step with scipy BFGS because our line search is _slightly_ different.
 
@@ -105,11 +105,11 @@ class TestBFGS(jtu.JaxTestCase):
   @jtu.skip_on_flag('jax_enable_x64', False)
   def test_zakharov(self):
     def zakharov_fn(x):
-      ii = jnp.arange(1, len(x) + 1, step=1)
+      ii = jnp.arange(1, len(x) + 1, step=1, dtype='float64')
       answer = zakharovFromIndices(x=x, ii=ii)
       return answer
 
-    x0 = jnp.array([600.0, 700.0, 200.0, 100.0, 90.0, 1e4])
+    x0 = jnp.array([600.0, 700.0, 200.0, 100.0, 90.0, 1e4], dtype='float64')
     eval_func = jax.jit(zakharov_fn)
     jax_res = jax.scipy.optimize.minimize(fun=eval_func, x0=x0, method='BFGS')
     self.assertLess(jax_res.fun, 1e-6)
@@ -148,10 +148,10 @@ class TestLBFGS(jtu.JaxTestCase):
     {"testcase_name": "_func={}_maxiter={}".format(func_and_init[0].__name__, maxiter),
      "maxiter": maxiter, "func_and_init": func_and_init}
     for maxiter in [None]
-    for func_and_init in [(rosenbrock, np.zeros(2)),
-                          (himmelblau, np.zeros(2)),
-                          (matyas, np.ones(2) * 6.),
-                          (eggholder, np.ones(2) * 100.)]))
+    for func_and_init in [(rosenbrock, np.zeros(2, 'float32')),
+                          (himmelblau, np.zeros(2, 'float32')),
+                          (matyas, np.full(2, 6., 'float32')),
+                          (eggholder, np.full(2, 100., 'float32'))]))
   def test_minimize(self, maxiter, func_and_init):
 
     func, x0 = func_and_init
@@ -181,7 +181,7 @@ class TestLBFGS(jtu.JaxTestCase):
     if func.__name__ == 'eggholder':
       # L-BFGS performs poorly for the eggholder function.
       # Neither scipy nor jax find the true minimum, so we can only loosely (with high atol) compare the false results
-      self.assertAllClose(jax_res, scipy_res, atol=1e-3)
+      self.assertAllClose(jax_res, scipy_res, atol=1e-3, check_dtypes=False)
       return
 
     self.assertAllClose(jax_res, scipy_res, atol=2e-5, check_dtypes=False)

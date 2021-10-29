@@ -18,11 +18,11 @@ from absl.testing import absltest
 from absl.testing import parameterized
 
 import numpy as np
+import jax.numpy as jnp
 
 from jax._src import test_util as jtu
 from jax import random
 from jax.example_libraries import stax
-from jax import dtypes
 
 from jax.config import config
 config.parse_flags_with_absl()
@@ -30,7 +30,7 @@ config.parse_flags_with_absl()
 
 def random_inputs(rng, input_shape):
   if type(input_shape) is tuple:
-    return rng.randn(*input_shape).astype(dtypes.canonicalize_dtype(np.float_))
+    return rng.randn(*input_shape).astype(jnp.float_)
   elif type(input_shape) is list:
     return [random_inputs(rng, shape) for shape in input_shape]
   else:

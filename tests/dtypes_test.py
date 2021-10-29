@@ -83,8 +83,8 @@ class DtypesTest(jtu.JaxTestCase):
   @parameterized.named_parameters(
     {"testcase_name": "_type={}".format(type.__name__), "type": type,
      "dtype": dtype}
-    for type, dtype in [(bool, jnp.bool_), (int, jnp.int_), (float, jnp.float_),
-                        (complex, jnp.complex_)])
+    for type, dtype in [(bool, jnp.bool_), (int, jnp.int64), (float, jnp.float64),
+                        (complex, jnp.complex128)])
   def testDefaultTypes(self, type, dtype):
     for f in [jnp.array, jax.jit(jnp.array), jax.jit(lambda x: x)]:
       y = f(type(0))
@@ -103,8 +103,8 @@ class DtypesTest(jtu.JaxTestCase):
                       message="Explicitly requested dtype.*")
   def testBinaryPromotion(self, swap, jit):
     testcases = [
-      (jnp.array(1.), 0., jnp.float_),
-      (jnp.array(1.), jnp.array(0.), jnp.float_),
+      (jnp.array(1.), 0., jnp.float64),
+      (jnp.array(1.), jnp.array(0.), jnp.float64),
       (jnp.array(1.), jnp.array(0., dtype=jnp.float16), jnp.float16),
       (jnp.array(1.), jnp.array(0., dtype=jnp.float32), jnp.float32),
       (jnp.array(1.), jnp.array(0., dtype=jnp.float64), jnp.float64),

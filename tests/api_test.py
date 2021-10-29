@@ -1259,7 +1259,7 @@ class APITest(jtu.JaxTestCase):
       api.jvp(fun, (jnp.array([1.,2.,3.], dtype=jnp.float32),), (jnp.float32(20.),))
     with self.assertRaisesRegex(
       ValueError, "jvp called with different primal and tangent shapes"):
-      api.jvp(fun, (jnp.array([1.,2.,3.]),), (20.,))
+      api.jvp(fun, (jnp.array([1.,2.,3.]),), (jnp.float32(20.),))
 
   def test_jvp_non_tuple_arguments(self):
     def f(x, y): return x + y
@@ -1705,7 +1705,7 @@ class APITest(jtu.JaxTestCase):
     primal, fn_vjp = api.vjp(lambda x, i: x[i], np.ones(2)*2, 1)
     tangent_x, tangent_i = fn_vjp(1.)
     self.assertEqual(primal, 2.)
-    self.assertAllClose(tangent_x, jnp.array([0., 1.]))
+    self.assertAllClose(tangent_x, jnp.array([0., 1.]), check_dtypes=False)
     self.assertEqual(tangent_i, np.zeros(shape=(), dtype=float0))
 
   @unittest.skipIf(numpy_version == (1, 21, 0),
@@ -1731,7 +1731,7 @@ class APITest(jtu.JaxTestCase):
     # Regression test for tangent and cotangent mismatch in convert_element_type
     # transpose rule wrt a ConstVar
     f = lax.full_like
-    out, vjp = api.vjp(f, np.zeros((2, 2)), 1)
+    out, vjp = api.vjp(f, jnp.zeros((2, 2)), 1)
     self.assertAllClose(out, jnp.ones((2, 2)))
     tangent_x, tangent_y = vjp(out)
     self.assertAllClose(tangent_x, jnp.zeros((2, 2)))
@@ -1757,7 +1757,7 @@ class APITest(jtu.JaxTestCase):
                    "https://github.com/numpy/numpy/issues/19305")
   def test_grad_of_int_index(self):
     grad_x, grad_i = api.grad(lambda x, i: x[i], argnums=(0, 1),
-                              allow_int=True)(np.ones(2), 1)
+                              allow_int=True)(jnp.ones(2), 1)
     self.assertAllClose(grad_x, jnp.array([0., 1.]))
     self.assertEqual(grad_i, np.zeros(shape=(), dtype=float0))
 
@@ -1765,7 +1765,7 @@ class APITest(jtu.JaxTestCase):
                    "https://github.com/numpy/numpy/issues/19305")
   def test_jit_grad_of_int(self):
     grad_f = api.grad(lambda x, i: x[i], argnums=(0, 1), allow_int=True)
-    grad_x, grad_i = jax.jit(grad_f)(np.ones(2), 1)
+    grad_x, grad_i = jax.jit(grad_f)(jnp.ones(2), 1)
     self.assertAllClose(grad_x, jnp.array([0., 1.]))
     self.assertEqual(grad_i, np.zeros(shape=(), dtype=float0))
 
@@ -2873,8 +2873,8 @@ class APITest(jtu.JaxTestCase):
       bar = 1
 
     @api.pmap
-    def f(_):
-      return Foo.bar
+    def f(x):
+      return lax._const(x, Foo.bar)
 
     ans = f(jnp.arange(1))  # doesn't crash
     expected = jnp.arange(1) + 1
@@ -3061,7 +3061,7 @@ class APITest(jtu.JaxTestCase):
     key1, key2 = jax.random.split(key, 2)
     x_batch = jax.random.normal(key1, (3, 2))
     covector_batch = jax.random.normal(key2, (3, 2))
-    coeff = jnp.array(1.)
+    coeff = jnp.float32(1.)
 
     batched_scan_over_mul = jax.vmap(scan_over_mul, in_axes=(0, None), out_axes=0)
     res, vjp_fun = jax.vjp(batched_scan_over_mul, x_batch, coeff)
@@ -4592,7 +4592,7 @@ class CustomJVPTest(jtu.JaxTestCase):
     # just make sure these don't crash
     foo(3.)
     grad(foo)(3.)
-    grad(lambda x: jax.vmap(foo)(x).sum())(jnp.arange(3.))
+    grad(lambda x: jax.vmap(foo)(x).sum())(np.arange(3.))
 
   def test_hard_stuff(self):
     arr = jnp.ones((5, 2, 2))
@@ -4635,11 +4635,11 @@ class CustomJVPTest(jtu.JaxTestCase):
       return c[-1]
 
     # don't crash
-    jax.jit(jax.vmap(f))(jnp.arange(3.))
-    jax.jit(jax.vmap(jax.grad(f)))(jnp.arange(3.))
-    jax.jit(jax.grad(lambda x: jax.vmap(f)(x).sum()))(jnp.arange(3.))
-    jax.grad(lambda x: jax.vmap(f)(x).sum())(jnp.arange(3.))
-    jax.jvp(jax.jit(jax.vmap(f)), (jnp.arange(3.),), (jnp.ones(3),))
+    jax.jit(jax.vmap(f))(np.arange(3.))
+    jax.jit(jax.vmap(jax.grad(f)))(np.arange(3.))
+    jax.jit(jax.grad(lambda x: jax.vmap(f)(x).sum()))(np.arange(3.))
+    jax.grad(lambda x: jax.vmap(f)(x).sum())(np.arange(3.))
+    jax.jvp(jax.jit(jax.vmap(f)), (np.arange(3.),), (np.ones(3),))
 
   def test_eval_shape(self):
     @jax.custom_jvp
@@ -5099,7 +5099,7 @@ class CustomJVPTest(jtu.JaxTestCase):
       dx, = tangents
       return a * x, a * dx
 
-    shape = grad(lambda x: jnp.sum(f(x)))(jnp.array(1.)).shape
+    shape = grad(lambda x: jnp.sum(f(x)))(jnp.float32(1.)).shape
     self.assertEqual(shape, ())
 
 
@@ -5259,7 +5259,7 @@ class CustomVJPTest(jtu.JaxTestCase):
     self.assertRaisesRegex(
         TypeError,
         r"can't apply forward-mode autodiff \(jvp\) to a custom_vjp function.",
-        lambda: api.jvp(f, (3.,), (1.,)))
+        lambda: api.jvp(f, (jnp.float32(3.),), (jnp.float32(1.),)))
     self.assertRaisesRegex(
         TypeError,
         r"can't apply forward-mode autodiff \(jvp\) to a custom_vjp function.",
@@ -5267,7 +5267,7 @@ class CustomVJPTest(jtu.JaxTestCase):
     self.assertRaisesRegex(
         TypeError,
         r"can't apply forward-mode autodiff \(jvp\) to a custom_vjp function.",
-        lambda: api.jvp(jit(f), (3.,), (1.,)))
+        lambda: api.jvp(jit(f), (jnp.float32(3.),), (jnp.float32(1.),)))
 
   def test_kwargs(self):
     # from https://github.com/google/jax/issues/1938
@@ -5663,7 +5663,7 @@ class CustomVJPTest(jtu.JaxTestCase):
 
       f.defvjp(fwd, bwd)
 
-      return jax.grad(f)(1.)
+      return jax.grad(f)(lax._const(y, 1))
 
     ans = jax.jit(f)(2.)
     self.assertAllClose(ans, 2. * jnp.cos(2.))
@@ -5694,7 +5694,7 @@ class CustomVJPTest(jtu.JaxTestCase):
 
       f.defvjp(fwd, bwd)
 
-      return jax.grad(f)(1.)
+      return jax.grad(f)(lax._const(y, 1))
 
     ans = jax.jit(f)(2.)
     self.assertAllClose(ans, 2. * jnp.cos(2.))
@@ -6143,7 +6143,7 @@ class InvertibleADTest(jtu.JaxTestCase):
   @jtu.ignore_warning(message="Values that an @invertible function closes")
   def test_invertible_basic(self):
     def f(x):
-      return lax.mul(lax.mul(lax.exp(x), 4.), x)
+      return lax.mul(lax.mul(lax.exp(x), lax._const(x, 4)), x)
 
     finv = jax.invertible(f)
     x = jnp.ones((5,))
@@ -6338,7 +6338,7 @@ class NamedCallTest(jtu.JaxTestCase):
     }
     f = jit[jit_type](funcdict[func])
 
-    int_dtype = dtypes.canonicalize_dtype(jnp.int_)
+    int_dtype = dtypes.canonicalize_dtype(np.int64)
     int_max = np.iinfo(int_dtype).max
     int_min = np.iinfo(int_dtype).min
 
