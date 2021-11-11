@@ -779,10 +779,15 @@ class BCOOTest(jtu.JaxTestCase):
       for lhs_shape, rhs_shape, dimension_numbers, n_batch, n_dense in [
           ((3, 3, 2), (3, 2, 4), (([2], [1]), ([0], [0])), 1, 0),
           ((3, 3, 2), (3, 2, 4), (([2], [1]), ([0], [0])), 2, 0),
+          ((3, 2, 4), (3, 3, 2), (([1], [2]), ([0], [0])), 1, 0),
+          ((3, 2, 4), (3, 3, 2), (([1], [2]), ([0], [0])), 2, 0),
           ((3, 3, 2), (2, 3, 4), (([2], [0]), ([0], [1])), 1, 0),
           ((3, 3, 2), (2, 3, 4), (([2], [0]), ([0], [1])), 2, 0),
+          ((2, 3, 4), (3, 3, 2), (([0], [2]), ([1], [0])), 2, 0),
           ((3, 4, 2, 4), (3, 4, 3, 2), (([2], [3]), ([0, 1], [0, 1])), 2, 0),
           ((3, 4, 2, 4), (3, 4, 3, 2), (([2], [3]), ([0, 1], [0, 1])), 2, 1),
+          ((2, 2, 3), (2, 2, 3), (([0, 2], [0, 2]), ([1], [1])), 2, 0),
+          ((2, 2, 3), (2, 2, 3), (([0, 2], [0, 2]), ([1], [1])), 3, 0),
       ]
       for dtype in jtu.dtypes.floating + jtu.dtypes.complex))
   def test_bcoo_dot_general_contract_and_batch(self, lhs_shape, rhs_shape, dtype,
@@ -800,8 +805,8 @@ class BCOOTest(jtu.JaxTestCase):
 
     def f_sparse(data, indices, lhs, rhs):
       return sparse.bcoo_dot_general(data, indices, rhs,
-                                         lhs_shape=lhs.shape,
-                                         dimension_numbers=dimension_numbers)
+                                     lhs_shape=lhs.shape,
+                                     dimension_numbers=dimension_numbers)
 
     self._CheckAgainstNumpy(f_dense, f_sparse, args_maker)
     self._CheckAgainstNumpy(f_dense, jit(f_sparse), args_maker)
