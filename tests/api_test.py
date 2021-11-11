@@ -6360,7 +6360,7 @@ class NamedCallTest(jtu.JaxTestCase):
     }
     f = jit[jit_type](funcdict[func])
 
-    int_dtype = dtypes.canonicalize_dtype(jnp.int_)
+    int_dtype = dtypes.canonicalize_dtype(jnp.int64)
     int_max = np.iinfo(int_dtype).max
     int_min = np.iinfo(int_dtype).min
 

@@ -373,7 +373,7 @@ iscomplexobj = np.iscomplexobj
 shape = _shape = np.shape
 ndim = _ndim = np.ndim
 size = np.size
-_dtype = dtypes.result_type
+_dtype = np.result_type
 
 # At present JAX doesn't have a reason to distinguish between scalars and arrays
 # in its object system. Further, we want JAX scalars to have the same type

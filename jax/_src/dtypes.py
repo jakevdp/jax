@@ -41,10 +41,10 @@ _bfloat16_dtype: np.dtype = np.dtype(bfloat16)
 # Default types.
 
 bool_: type = np.bool_
-int_: type = np.int64
-uint: type = np.uint64
-float_: type = np.float64
-complex_: type = np.complex128
+int_: type = np.int32
+uint: type = np.uint32
+float_: type = np.float32
+complex_: type = np.complex64
 
 # TODO(phawkins): change the above defaults to:
 # int_ = np.int32
@@ -79,10 +79,10 @@ def canonicalize_dtype(dtype):
 
 # Default dtypes corresponding to Python scalars.
 python_scalar_dtypes : dict = {
-  bool: np.dtype(bool_),
-  int: np.dtype(int_),
-  float: np.dtype(float_),
-  complex: np.dtype(complex_),
+  bool: np.dtype('bool'),
+  int: np.dtype('int64'),
+  float: np.dtype('float64'),
+  complex: np.dtype('complex128'),
 }
 
 def scalar_type_of(x):
@@ -365,11 +365,11 @@ def _lattice_result_type(*args):
     result_type = _least_upper_bound(*{_jax_type(d, w) for d, w in zip(dtypes, weak_types)})
     return dtype(result_type), any(result_type is t for t in _weak_types)
 
-def result_type(*args):
+def result_type(*args, coerce_to_default=True):
   """Convenience function to apply JAX argument dtype promotion."""
   if len(args) == 0:
     raise ValueError("at least one array or dtype is required")
   dtype, weak_type = _lattice_result_type(*args)
-  if weak_type:
+  if weak_type and coerce_to_default:
     dtype = _default_types['f' if dtype == _bfloat16_dtype else dtype.kind]
   return canonicalize_dtype(dtype)
