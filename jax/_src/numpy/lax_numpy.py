@@ -373,7 +373,7 @@ iscomplexobj = np.iscomplexobj
 shape = _shape = np.shape
 ndim = _ndim = np.ndim
 size = np.size
-_dtype = np.result_type
+_dtype = partial(dtypes.dtype, canonicalize=True)
 
 # At present JAX doesn't have a reason to distinguish between scalars and arrays
 # in its object system. Further, we want JAX scalars to have the same type
@@ -479,7 +479,7 @@ def _np_array(obj, dtype=None, **kwargs):
   arr_dtype = np.dtype(arr.dtype).type
   if dtype is None and obj_dtype is None:
     if dtypes.is_python_scalar(obj):
-      arr = arr.astype(dtypes.dtype(obj))
+      arr = arr.astype(result_type(obj))
     elif arr_dtype in _DEFAULT_TYPEMAP:
       arr = arr.astype(_DEFAULT_TYPEMAP[arr_dtype])
   return arr
@@ -1204,7 +1204,7 @@ mod = _wraps(np.mod)(remainder)
 @jit
 def fmod(x1, x2):
   _check_arraylike("fmod", x1, x2)
-  if issubdtype(_dtype(x1, x2), integer):
+  if issubdtype(result_type(x1, x2), integer):
     x2 = where(x2 == 0, 1, x2)
   return lax.rem(*_promote_args("fmod", x1, x2))
 
@@ -3732,14 +3732,14 @@ def arange(start, stop=None, step=None, dtype=None):
   msg = "It arose in jax.numpy.arange argument `{}`.".format
   if stop is None and step is None:
     start = require(start, msg("stop"))
-    dtype = dtype or _dtype(start)
+    dtype = dtype or result_type(start)
     return lax.iota(dtype, np.ceil(start).astype(int)) # avoids materializing
   else:
     start = require(start, msg("start"))
     stop = None if stop is None else require(stop, msg("stop"))
     step = None if step is None else require(step, msg("step"))
     if dtype is None:
-      dtype = _dtype(start, *(x for x in [stop, step] if x is not None))
+      dtype = result_type(start, *(x for x in [stop, step] if x is not None))
     return array(np.arange(start, stop=stop, step=step, dtype=dtype))
 
 

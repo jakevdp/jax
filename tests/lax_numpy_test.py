@@ -2347,7 +2347,10 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
       self.skipTest("zero-sized axis in unique leads to error in older numpy.")
     rng = jtu.rand_some_equal(self.rng())
     args_maker = lambda: [rng(shape, dtype)]
-    np_fun = lambda x: np.unique(x, return_index, return_inverse, return_counts, axis=axis)
+    def np_fun(x):
+      results = np.unique(x, return_index, return_inverse, return_counts, axis=axis)
+      return (results[0], *(res.astype('int32') for res in results[1:]))
+
     jnp_fun = lambda x: jnp.unique(x, return_index, return_inverse, return_counts, axis=axis)
     self._CheckAgainstNumpy(np_fun, jnp_fun, args_maker)
 
@@ -4688,7 +4691,7 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
 
   def testArangeJit(self):
     ans = jax.jit(lambda: jnp.arange(5))()
-    expected = np.arange(5)
+    expected = jnp.arange(5)
     self.assertAllClose(ans, expected)
 
   def testIssue830(self):
@@ -5043,8 +5046,8 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
                         jnp.ogrid[0:3.5:0.3],
                         atol=atol,
                         rtol=rtol)
-    self.assertAllClose(np.ogrid[1.2:4.8:0.24],
-                        jnp.ogrid[1.2:4.8:0.24],
+    self.assertAllClose(np.ogrid[1.2:4.8:0.23],
+                        jnp.ogrid[1.2:4.8:0.23],
                         atol=atol,
                         rtol=rtol)
     # abstract tracer value for ogrid slice
@@ -5090,8 +5093,8 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
                         atol=atol,
                         rtol=rtol)
     # Non-integer steps
-    self.assertAllClose(np.r_[1.2:4.8:0.24],
-                        jnp.r_[1.2:4.8:0.24],
+    self.assertAllClose(np.r_[1.2:4.8:0.23],
+                        jnp.r_[1.2:4.8:0.23],
                         atol=atol,
                         rtol=rtol)
 
@@ -5131,8 +5134,8 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
                         rtol=rtol)
 
     # Non-integer steps
-    self.assertAllClose(np.c_[1.2:4.8:0.24],
-                        jnp.c_[1.2:4.8:0.24],
+    self.assertAllClose(np.c_[1.2:4.8:0.23],
+                        jnp.c_[1.2:4.8:0.23],
                         atol=atol,
                         rtol=rtol)
 

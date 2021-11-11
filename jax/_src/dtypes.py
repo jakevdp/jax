@@ -341,14 +341,15 @@ def is_python_scalar(x):
   except AttributeError:
     return type(x) in python_scalar_dtypes
 
-def dtype(x):
+def dtype(x, canonicalize=False):
   if type(x) in python_scalar_dtypes:
-    return python_scalar_dtypes[type(x)]
-  dt = np.result_type(x)
-  if dt not in _jax_dtype_set:
-    raise TypeError(f"Value '{x}' with dtype {dt} is not a valid JAX array "
-                    "type. Only arrays of numeric types are supported by JAX.")
-  return dt
+    dt = python_scalar_dtypes[type(x)]
+  else:
+    dt = np.result_type(x)
+    if dt not in _jax_dtype_set:
+      raise TypeError(f"Value '{x}' with dtype {dt} is not a valid JAX array "
+                      "type. Only arrays of numeric types are supported by JAX.")
+  return canonicalize_dtype(dt) if canonicalize else dt
 
 def _lattice_result_type(*args):
   dtypes, weak_types = zip(*(_dtype_and_weaktype(arg) for arg in args))
