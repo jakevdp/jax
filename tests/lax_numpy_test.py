@@ -2401,7 +2401,7 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
         u[tuple(slices)] = fill_value
         ind = np.pad(ind, extra, constant_values=ind[0])
         counts = np.pad(counts, extra, constant_values=0)
-      return u, ind, inv, counts
+      return u, ind.astype(jnp.int_), inv.astype(jnp.int_), counts.astype(jnp.int_)
 
     jnp_fun = lambda x: jnp.unique(x, size=size, fill_value=fill_value, **kwds)
 

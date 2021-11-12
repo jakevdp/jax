@@ -2186,7 +2186,7 @@ def bincount(x, weights=None, minlength=0, *, length=None):
     length = core.concrete_or_error(operator.index, length,
         "The error occurred because of argument 'length' of jnp.bincount.")
   if weights is None:
-    weights = 1
+    weights = int_(1)
   elif shape(x) != shape(weights):
     raise ValueError("shape of weights must match shape of x.")
   return zeros(length, _dtype(weights)).at[clip(x, 0)].add(weights)
@@ -2835,7 +2835,7 @@ def nonzero(a, *, size=None, fill_value=None):
   if a.size == 0 or size == 0:
     return tuple(zeros(size, int) for dim in a.shape)
   flat_indices = cumsum(bincount(cumsum(mask), length=size))
-  strides = np.cumprod(a.shape[::-1])[::-1] // a.shape
+  strides = (np.cumprod(a.shape[::-1])[::-1] // a.shape).astype(int_)
   out = tuple((flat_indices // stride) % size for stride, size in zip(strides, a.shape))
   if size is not None and fill_value is not None:
     if not isinstance(fill_value, tuple):
@@ -3651,7 +3651,7 @@ def full_like(a, fill_value, dtype=None, shape=None):
     return lax.full_like(a, fill_value, dtype, shape)
   else:
     shape = np.shape(a) if shape is None else shape
-    dtype = _dtype(a) if dtype is None else dtype
+    dtype = result_type(a if dtype is None else dtype)
     return broadcast_to(asarray(fill_value, dtype=dtype), shape)
 
 
@@ -3660,7 +3660,7 @@ def zeros(shape, dtype=None):
   if isinstance(shape, types.GeneratorType):
     raise TypeError("expected sequence object with len >= 0 or a single integer")
   lax._check_user_dtype_supported(dtype, "zeros")
-  dtype = float_ if dtype is None else dtype
+  dtype = float_ if dtype is None else result_type(dtype)
   shape = (shape,) if ndim(shape) == 0 else shape
   return lax.full(shape, 0, dtype)
 
@@ -3669,7 +3669,7 @@ def ones(shape, dtype=None):
   if isinstance(shape, types.GeneratorType):
     raise TypeError("expected sequence object with len >= 0 or a single integer")
   lax._check_user_dtype_supported(dtype, "ones")
-  dtype = float_ if dtype is None else dtype
+  dtype = float_ if dtype is None else result_type(dtype)
   shape = (shape,) if ndim(shape) == 0 else shape
   return lax.full(shape, 1, dtype)
 
@@ -3710,7 +3710,7 @@ empty = zeros
 @_wraps(np.eye)
 def eye(N, M=None, k=0, dtype=None):
   lax._check_user_dtype_supported(dtype, "eye")
-  dtype = float_ if dtype is None else dtype
+  dtype = float_ if dtype is None else result_type(dtype)
   N = core.canonicalize_dim(N, "'N' argument of jnp.eye()")
   M = N if M is None else core.canonicalize_dim(M, "'M' argument of jnp.eye()")
   if N < 0 or M < 0:
@@ -5267,7 +5267,7 @@ def lexsort(keys, axis=-1):
   if ndim(keys[0]) == 0:
     return np.int64(0)
   axis = _canonicalize_axis(axis, ndim(keys[0]))
-  iota = lax.broadcasted_iota(np.int64, shape(keys[0]), axis)
+  iota = lax.broadcasted_iota(int_, shape(keys[0]), axis)
   return lax.sort((*keys[::-1], iota), dimension=axis, num_keys=len(keys))[-1]
 
 
@@ -5596,7 +5596,7 @@ def _unique(ar, axis, return_index=False, return_inverse=False, return_counts=Fa
         idx = idx.at[1:].set(where(idx[1:], idx[1:], mask.size))
       ret += (diff(idx),)
     elif ar.shape[axis]:
-      ret += (array([ar.shape[axis]]),)
+      ret += (array([ar.shape[axis]], dtype=int_),)
     else:
       ret += (empty(0, dtype=int),)
   if return_true_size:
@@ -6508,7 +6508,7 @@ def nanmedian(a, axis: Optional[Union[int, Tuple[int, ...]]] = None, out=None,
 
 def _astype(arr, dtype):
   lax._check_user_dtype_supported(dtype, "astype")
-  return lax.convert_element_type(arr, dtype)
+  return lax.convert_element_type(arr, result_type(dtype))
 
 
 def _nbytes(arr):
