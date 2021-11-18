@@ -6414,22 +6414,6 @@ def _quantile(a, q, axis, interpolation, keepdims, squash_nans):
   return lax.convert_element_type(result, a.dtype)
 
 
-@partial(vectorize, excluded={0, 2})
-def _searchsorted(a, v, side):
-  if len(a) == 0:
-    return 0
-  op = operator.le if side == 'left' else operator.lt
-
-  def body_fun(i, state):
-    low, high = state
-    mid = (low + high) // 2
-    go_left = op(v, a[mid])
-    return (where(go_left, low, mid), where(go_left, mid, high))
-
-  n_levels = int(np.ceil(np.log2(len(a) + 1)))
-  return lax.fori_loop(0, n_levels, body_fun, (0, len(a)))[1]
-
-
 @_wraps(np.searchsorted, skip_params=['sorter'])
 @partial(jit, static_argnames=('side', 'sorter'))
 def searchsorted(a, v, side='left', sorter=None):
@@ -6440,7 +6424,12 @@ def searchsorted(a, v, side='left', sorter=None):
     raise NotImplementedError("sorter is not implemented")
   if ndim(a) != 1:
     raise ValueError("a should be 1-dimensional")
-  return _searchsorted(a, v, side)
+  i = argsort(concatenate([ravel(v), a] if side == 'left' else [a, ravel(v)]))
+  i_rev = zeros_like(i).at[i].set(arange(len(i)))
+  if side == 'left':
+    return cumsum(i >= v.size)[i_rev[:v.size]].reshape(v.shape)
+  else:
+    return cumsum(i < len(a))[i_rev[len(a):]].reshape(v.shape)
 
 
 @_wraps(np.digitize)
