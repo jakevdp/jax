@@ -523,6 +523,14 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {"testcase_name": "_{}".format(dtype), "dtype": dtype}
+      for dtype in ['bool_', 'uint', 'int_', 'float_', 'complex_']))
+  def testDefaultTypes(self, dtype):
+    arr = getattr(jnp, dtype)(0)
+    self.assertIsInstance(arr, jnp.ndarray)
+    self.assertEqual(arr.dtype, dtypes.canonicalize_dtype(getattr(dtypes, dtype)))
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {"testcase_name": "_{}".format(dtype), "dtype": dtype}
       for dtype in float_dtypes))
   def testLoad(self, dtype):
     rng = jtu.rand_default(self.rng())

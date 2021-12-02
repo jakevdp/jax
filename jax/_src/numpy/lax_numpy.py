@@ -393,7 +393,7 @@ class _ScalarMeta(type):
     return not (self == other)
 
   def __call__(self, x):
-    return array(x, dtype=self.dtype)
+    return array(x, dtype=dtypes.canonicalize_dtype(self.dtype))
 
   def __instancecheck__(self, instance):
     return isinstance(instance, self.dtype.type)
