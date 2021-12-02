@@ -32,10 +32,9 @@ def enable_x64(new_val: bool = True):
 
   Usage::
 
-    >>> import jax.numpy as jnp
     >>> with enable_x64():
-    ...   print(jnp.arange(10.0).dtype)
-    ...
+    ...   x = np.arange(10, dtype='float64')
+    ...   print(jnp.asarray(x).dtype)
     float64
 
   See Also
@@ -51,10 +50,9 @@ def disable_x64():
 
   Usage::
 
-    >>> import jax.numpy as jnp
     >>> with disable_x64():
-    ...   print(jnp.arange(10.0).dtype)
-    ...
+    ...   x = np.arange(10, dtype='float64')
+    ...   print(jnp.asarray(x).dtype)
     float32
 
   See Also

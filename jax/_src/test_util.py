@@ -92,6 +92,16 @@ def _dtype(x):
 def num_float_bits(dtype):
   return _dtypes.finfo(_dtypes.canonicalize_dtype(dtype)).bits
 
+def with_32bit_outputs(func):
+  @functools.wraps(func)
+  def wrapped(*args, **kwargs):
+    result = func(*args, **kwargs)
+    def _to_32bit(x):
+      if getattr(x, 'dtype', None) in _dtypes._dtype_to_32bit_dtype:
+        return x.astype(_dtypes._dtype_to_32bit_dtype[x.dtype])
+      return x
+    return tree_map(_to_32bit, result)
+  return wrapped
 
 def is_sequence(x):
   try:

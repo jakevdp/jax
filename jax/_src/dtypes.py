@@ -41,16 +41,11 @@ _bfloat16_dtype: np.dtype = np.dtype(bfloat16)
 # Default types.
 
 bool_: type = np.bool_
-int_: type = np.int64
-uint: type = np.uint64
-float_: type = np.float64
-complex_: type = np.complex128
+int_: type = np.int32
+uint: type = np.uint32
+float_: type = np.float32
+complex_: type = np.complex64
 
-# TODO(phawkins): change the above defaults to:
-# int_ = np.int32
-# uint = np.uint32
-# float_ = np.float32
-# complex_ = np.complex64
 _default_types = {'b': bool_, 'i': int_, 'u': uint, 'f': float_, 'c': complex_}
 
 # Trivial vectorspace datatype needed for tangent values of int/bool primals

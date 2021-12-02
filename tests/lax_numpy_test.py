@@ -45,6 +45,7 @@ from jax import tree_util
 from jax.test_util import check_grads
 from jax._src.util import prod, safe_zip
 from jax._src.numpy.util import _parse_numpydoc, ParsedDoc
+from jax._src.numpy.lax_numpy import _promote_dtypes, _promote_dtypes_inexact
 
 from jax.config import config
 config.parse_flags_with_absl()
@@ -78,6 +79,13 @@ python_scalar_dtypes = [jnp.bool_, jnp.int_, jnp.float_, jnp.complex_]
 
 # uint64 is problematic because with any uint type it promotes to float:
 int_dtypes_no_uint64 = [d for d in int_dtypes + unsigned_dtypes if d != np.uint64]
+
+def _indexer_with_32bit_outputs(indexer):
+  class Indexer:
+    def __getitem__(self, *args):
+      result = indexer.__getitem__(*args)
+      return tree_util.tree_map(lambda x: x.astype(dtypes._dtype_to_32bit_dtype[x.dtype]), result)
+  return Indexer()
 
 def _valid_dtypes_for_shape(shape, dtypes):
   # Not all (shape, dtype) pairs are valid. In particular, Python scalars only
@@ -301,7 +309,7 @@ JAX_COMPOUND_OP_RECORDS = [
               check_dtypes=False),
     op_record("true_divide", 2, all_dtypes, all_shapes, jtu.rand_nonzero,
               ["rev"], inexact=True),
-    op_record("ediff1d", 3, [np.int32], all_shapes, jtu.rand_default, []),
+    op_record("ediff1d", 3, [np.int32], all_shapes, jtu.rand_default, [], check_dtypes=False),
     # TODO(phawkins): np.unwrap does not correctly promote its default period
     # argument under NumPy 1.21 for bfloat16 inputs. It works fine if we
     # explicitly pass a bfloat16 value that does not need promition. We should
@@ -489,14 +497,10 @@ def _promote_like_jnp(fun, inexact=False):
   tests make an np reference implementation act more like an jnp
   implementation.
   """
+  _promote = _promote_dtypes_inexact if inexact else _promote_dtypes
   def wrapper(*args, **kw):
-    flat_args = tree_util.tree_leaves(args)
-    if inexact and not any(jnp.issubdtype(jnp.result_type(x), jnp.inexact)
-                           for x in flat_args):
-      dtype = jnp.result_type(jnp.float_, *flat_args)
-    else:
-      dtype = jnp.result_type(*flat_args)
-    args = tree_util.tree_map(lambda a: np.asarray(a, dtype), args)
+    flat_args, tree = tree_util.tree_flatten(args)
+    args = tree_util.tree_unflatten(tree, _promote(*flat_args))
     return fun(*args, **kw)
   return wrapper
 
@@ -1056,7 +1060,8 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
       jnp_op(np.array([]))
     with self.assertRaises(ValueError, msg=msg):
       jnp_op(np.zeros((2, 0)), axis=1)
-    np_fun = partial(np_op, axis=0)
+    def np_fun(*args):
+      return np_op(*args, axis=0).astype(jnp.int_)
     jnp_fun = partial(jnp_op, axis=0)
     args_maker = lambda: [np.zeros((2, 0))]
     self._CheckAgainstNumpy(np_fun, jnp_fun, args_maker)
@@ -1272,7 +1277,7 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
   def testSetdiff1d(self, shape1, shape2, dtype1, dtype2):
     rng = jtu.rand_default(self.rng())
     args_maker = lambda: [rng(shape1, dtype1), rng(shape2, dtype2)]
-    self._CheckAgainstNumpy(np.setdiff1d, jnp.setdiff1d, args_maker)
+    self._CheckAgainstNumpy(np.setdiff1d, jnp.setdiff1d, args_maker, check_dtypes=False)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {"testcase_name": "_{}_{}_size={}_fill_value={}".format(
@@ -1827,7 +1832,7 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
   def testExtract(self, shape, dtype):
     rng = jtu.rand_some_zero(self.rng())
     args_maker = lambda: [rng(shape, jnp.float32), rng(shape, dtype)]
-    self._CheckAgainstNumpy(np.extract, jnp.extract, args_maker)
+    self._CheckAgainstNumpy(np.extract, jnp.extract, args_maker, check_dtypes=False)
 
 
   @parameterized.named_parameters(jtu.cases_from_list(
@@ -1909,7 +1914,9 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
     elif rank == 2 and jtu.device_under_test() in ("tpu", "gpu"):
       self.skipTest("Nonsymmetric eigendecomposition is only implemented on the CPU backend.")
     rng = jtu.rand_default(self.rng())
-    tol = { np.int8: 1e-3, np.int32: 1e-3, np.float32: 1e-3, np.float64: 1e-6 }
+    # TODO(jakevdp[x64]): this change is because promote_dtypes_inexact(int64) results in float32.
+    # Should it result in float64 instead?
+    tol = { np.int8: 1e-3, np.int32: 1e-3, np.int64: 1e-3, np.float32: 1e-3, np.float64: 1e-6 }
     if jtu.device_under_test() == "tpu":
       tol[np.int32] = tol[np.float32] = 1e-1
     tol = jtu.tolerance(dtype, tol)
@@ -2369,7 +2376,13 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
       self.skipTest("zero-sized axis in unique leads to error in older numpy.")
     rng = jtu.rand_some_equal(self.rng())
     args_maker = lambda: [rng(shape, dtype)]
-    np_fun = lambda x: np.unique(x, return_index, return_inverse, return_counts, axis=axis)
+    def np_fun(x):
+      results = np.unique(x, return_index, return_inverse, return_counts, axis=axis)
+      if return_index or return_inverse or return_counts:
+        return (results[0], *(res.astype('int32') for res in results[1:]))
+      else:
+        return results
+
     jnp_fun = lambda x: jnp.unique(x, return_index, return_inverse, return_counts, axis=axis)
     self._CheckAgainstNumpy(np_fun, jnp_fun, args_maker)
 
@@ -2420,7 +2433,7 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
         u[tuple(slices)] = fill_value
         ind = np.pad(ind, extra, constant_values=ind[0])
         counts = np.pad(counts, extra, constant_values=0)
-      return u, ind, inv, counts
+      return u, ind.astype(jnp.int_), inv.astype(jnp.int_), counts.astype(jnp.int_)
 
     jnp_fun = lambda x: jnp.unique(x, size=size, fill_value=fill_value, **kwds)
 
@@ -2700,8 +2713,8 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
       for ndim in [0, 1, 4]
       for n in [0, 1, 7]))
   def testDiagIndices(self, ndim, n):
-    np.testing.assert_equal(np.diag_indices(n, ndim),
-                             jnp.diag_indices(n, ndim))
+    np.testing.assert_equal(tuple(ind.astype(jnp.int_) for ind in np.diag_indices(n, ndim)),
+                            jnp.diag_indices(n, ndim))
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {"testcase_name": "arr_shape={}".format(
@@ -2712,7 +2725,7 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
       for shape in [(1,1), (2,2), (3,3), (4,4), (5,5)]))
   def testDiagIndicesFrom(self, dtype, shape):
     rng = jtu.rand_default(self.rng())
-    np_fun = np.diag_indices_from
+    np_fun = lambda *args: tuple(out.astype(jnp.int_) for out in np.diag_indices_from(*args))
     jnp_fun = jnp.diag_indices_from
     args_maker = lambda : [rng(shape, dtype)]
     self._CheckAgainstNumpy(np_fun, jnp_fun, args_maker)
@@ -2874,13 +2887,11 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
         and not config.x64_enabled):
       self.skipTest("Only run float64 testcase when float64 is enabled.")
     rng = rng_factory(self.rng())
-    np_fun = lambda x: np.frexp(x)
-    jnp_fun = lambda x: jnp.frexp(x)
+    np_fun = _promote_like_jnp(np.frexp)
+    jnp_fun = jnp.frexp
     args_maker = lambda: [rng(shape, dtype)]
-    self._CheckAgainstNumpy(np_fun, jnp_fun, args_maker,
-                            check_dtypes=np.issubdtype(dtype, np.inexact))
+    self._CheckAgainstNumpy(np_fun, jnp_fun, args_maker, check_dtypes=False)
     self._CompileAndCheck(jnp_fun, args_maker)
-
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {"testcase_name": "_shape={}_dtype_{}_offset={}_axis1={}_axis2={}".format(
@@ -3982,7 +3993,7 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
   def testUnravelIndex(self, flat_index, shape):
     args_maker = lambda: (flat_index, shape)
     self._CheckAgainstNumpy(np.unravel_index, jnp.unravel_index,
-                            args_maker)
+                            args_maker, check_dtypes=False)
     self._CompileAndCheck(jnp.unravel_index, args_maker)
 
   def testUnravelIndexOOB(self):
@@ -4001,7 +4012,7 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
   def testAstypeNone(self):
     rng = np.random.RandomState(0)
     args_maker = lambda: [rng.randn(3, 4).astype("int32")]
-    np_op = lambda x: np.asarray(x).astype(None)
+    np_op = jtu.with_32bit_outputs(lambda x: np.asarray(x).astype(None))
     jnp_op = lambda x: jnp.asarray(x).astype(None)
     self._CheckAgainstNumpy(np_op, jnp_op, args_maker)
     self._CompileAndCheck(jnp_op, args_maker)
@@ -4067,7 +4078,7 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
 
   def testNpMean(self):
     # from https://github.com/google/jax/issues/125
-    x = lax.add(jnp.eye(3, dtype=float), 0.)
+    x = jnp.eye(3, dtype=float)
     ans = np.mean(x)
     self.assertAllClose(ans, np.array(1./3), check_dtypes=False)
 
@@ -4139,7 +4150,7 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
     args_maker = lambda: [input_type(rng(shape, dtype))]
     jnp_op = lambda x: jnp.lexsort(x, axis=axis)
     np_op = lambda x: np.lexsort(x, axis=axis)
-    self._CheckAgainstNumpy(np_op, jnp_op, args_maker)
+    self._CheckAgainstNumpy(np_op, jnp_op, args_maker, check_dtypes=False)
     self._CompileAndCheck(jnp_op, args_maker)
 
   @parameterized.named_parameters(jtu.cases_from_list(
@@ -4157,6 +4168,7 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
     if axis is not None:
       jnp_fun = partial(jnp_fun, axis=axis)
       np_fun = partial(np_fun, axis=axis)
+    np_fun = jtu.with_32bit_outputs(np_fun)
     self._CheckAgainstNumpy(np_fun, jnp_fun, args_maker)
     self._CompileAndCheck(jnp_fun, args_maker)
 
@@ -4637,8 +4649,8 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
   @parameterized.named_parameters(jtu.cases_from_list(
       {"testcase_name": "_op={}_dtype={}".format(op, pytype.__name__),
        "pytype": pytype, "dtype": dtype, "op": op}
-      for pytype, dtype in [(int, jnp.int_), (float, jnp.float_),
-                            (bool, jnp.bool_), (complex, jnp.complex_)]
+      for pytype, dtype in [(int, jnp.int64), (float, jnp.float64),
+                            (bool, jnp.bool_), (complex, jnp.complex128)]
       for op in ["atleast_1d", "atleast_2d", "atleast_3d"]))
   def testAtLeastNdLiterals(self, pytype, dtype, op):
     # Fixes: https://github.com/google/jax/issues/634
@@ -4717,7 +4729,7 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
        ])))
   def testBlock(self, input):
     args_maker = lambda: [input]
-    self._CheckAgainstNumpy(np.block, jnp.block, args_maker)
+    self._CheckAgainstNumpy(np.block, jnp.block, args_maker, check_dtypes=False)
     self._CompileAndCheck(jnp.block, args_maker)
 
   def testLongLong(self):
@@ -4757,7 +4769,7 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
 
   def testArangeJit(self):
     ans = jax.jit(lambda: jnp.arange(5))()
-    expected = np.arange(5)
+    expected = jnp.arange(5)
     self.assertAllClose(ans, expected)
 
   def testIssue830(self):
@@ -5040,40 +5052,42 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
     self._CompileAndCheck(jnp_fun, args_maker)
 
   def testMgrid(self):
+    np_mgrid = _indexer_with_32bit_outputs(np.mgrid)
+
     assertAllEqual = partial(self.assertAllClose, atol=0, rtol=0)
-    assertAllEqual(np.mgrid[:4], jnp.mgrid[:4])
-    assertAllEqual(np.mgrid[:4,], jnp.mgrid[:4,])
-    assertAllEqual(np.mgrid[:4], jax.jit(lambda: jnp.mgrid[:4])())
-    assertAllEqual(np.mgrid[:5, :5], jnp.mgrid[:5, :5])
-    assertAllEqual(np.mgrid[:3, :2], jnp.mgrid[:3, :2])
-    assertAllEqual(np.mgrid[1:4:2], jnp.mgrid[1:4:2])
-    assertAllEqual(np.mgrid[1:5:3, :5], jnp.mgrid[1:5:3, :5])
-    assertAllEqual(np.mgrid[:3, :2, :5], jnp.mgrid[:3, :2, :5])
-    assertAllEqual(np.mgrid[:3:2, :2, :5], jnp.mgrid[:3:2, :2, :5])
+    assertAllEqual(np_mgrid[:4], jnp.mgrid[:4])
+    assertAllEqual(np_mgrid[:4,], jnp.mgrid[:4,])
+    assertAllEqual(np_mgrid[:4], jax.jit(lambda: jnp.mgrid[:4])())
+    assertAllEqual(np_mgrid[:5, :5], jnp.mgrid[:5, :5])
+    assertAllEqual(np_mgrid[:3, :2], jnp.mgrid[:3, :2])
+    assertAllEqual(np_mgrid[1:4:2], jnp.mgrid[1:4:2])
+    assertAllEqual(np_mgrid[1:5:3, :5], jnp.mgrid[1:5:3, :5])
+    assertAllEqual(np_mgrid[:3, :2, :5], jnp.mgrid[:3, :2, :5])
+    assertAllEqual(np_mgrid[:3:2, :2, :5], jnp.mgrid[:3:2, :2, :5])
     # Corner cases
-    assertAllEqual(np.mgrid[:], jnp.mgrid[:])
+    assertAllEqual(np_mgrid[:], jnp.mgrid[:])
     # When the step length is a complex number, because of float calculation,
     # the values between jnp and np might slightly different.
     atol = 1e-6
     rtol = 1e-6
-    self.assertAllClose(np.mgrid[-1:1:5j],
+    self.assertAllClose(np_mgrid[-1:1:5j],
                         jnp.mgrid[-1:1:5j],
                         atol=atol,
                         rtol=rtol)
-    self.assertAllClose(np.mgrid[3:4:7j],
+    self.assertAllClose(np_mgrid[3:4:7j],
                         jnp.mgrid[3:4:7j],
                         atol=atol,
                         rtol=rtol)
-    self.assertAllClose(np.mgrid[1:6:8j, 2:4],
+    self.assertAllClose(np_mgrid[1:6:8j, 2:4],
                         jnp.mgrid[1:6:8j, 2:4],
                         atol=atol,
                         rtol=rtol)
     # Non-integer steps
-    self.assertAllClose(np.mgrid[0:3.5:0.5],
+    self.assertAllClose(np_mgrid[0:3.5:0.5],
                         jnp.mgrid[0:3.5:0.5],
                         atol=atol,
                         rtol=rtol)
-    self.assertAllClose(np.mgrid[1.3:4.2:0.3],
+    self.assertAllClose(np_mgrid[1.3:4.2:0.3],
                         jnp.mgrid[1.3:4.2:0.3],
                         atol=atol,
                         rtol=rtol)
@@ -5083,6 +5097,8 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
       jax.jit(lambda a, b: jnp.mgrid[a:b])(0, 2)
 
   def testOgrid(self):
+    np_ogrid = _indexer_with_32bit_outputs(np.ogrid)
+
     def assertListOfArraysEqual(xs, ys):
       self.assertIsInstance(xs, list)
       self.assertIsInstance(ys, list)
@@ -5090,29 +5106,29 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
       for x, y in zip(xs, ys):
         self.assertArraysEqual(x, y)
 
-    self.assertArraysEqual(np.ogrid[:5], jnp.ogrid[:5])
-    self.assertArraysEqual(np.ogrid[:5], jax.jit(lambda: jnp.ogrid[:5])())
-    self.assertArraysEqual(np.ogrid[1:7:2], jnp.ogrid[1:7:2])
+    self.assertArraysEqual(np_ogrid[:5], jnp.ogrid[:5])
+    self.assertArraysEqual(np_ogrid[:5], jax.jit(lambda: jnp.ogrid[:5])())
+    self.assertArraysEqual(np_ogrid[1:7:2], jnp.ogrid[1:7:2])
     # List of arrays
-    assertListOfArraysEqual(np.ogrid[:5,], jnp.ogrid[:5,])
-    assertListOfArraysEqual(np.ogrid[0:5, 1:3], jnp.ogrid[0:5, 1:3])
-    assertListOfArraysEqual(np.ogrid[1:3:2, 2:9:3], jnp.ogrid[1:3:2, 2:9:3])
-    assertListOfArraysEqual(np.ogrid[:5, :9, :11], jnp.ogrid[:5, :9, :11])
+    assertListOfArraysEqual(np_ogrid[:5,], jnp.ogrid[:5,])
+    assertListOfArraysEqual(np_ogrid[0:5, 1:3], jnp.ogrid[0:5, 1:3])
+    assertListOfArraysEqual(np_ogrid[1:3:2, 2:9:3], jnp.ogrid[1:3:2, 2:9:3])
+    assertListOfArraysEqual(np_ogrid[:5, :9, :11], jnp.ogrid[:5, :9, :11])
     # Corner cases
-    self.assertArraysEqual(np.ogrid[:], jnp.ogrid[:])
+    self.assertArraysEqual(np_ogrid[:], jnp.ogrid[:])
     # Complex number steps
     atol = 1e-6
     rtol = 1e-6
-    self.assertAllClose(np.ogrid[-1:1:5j],
+    self.assertAllClose(np_ogrid[-1:1:5j],
                         jnp.ogrid[-1:1:5j],
                         atol=atol,
                         rtol=rtol)
     # Non-integer steps
-    self.assertAllClose(np.ogrid[0:3.5:0.3],
+    self.assertAllClose(np_ogrid[0:3.5:0.3],
                         jnp.ogrid[0:3.5:0.3],
                         atol=atol,
                         rtol=rtol)
-    self.assertAllClose(np.ogrid[1.2:4.8:0.24],
+    self.assertAllClose(np_ogrid[1.2:4.8:0.24],
                         jnp.ogrid[1.2:4.8:0.24],
                         atol=atol,
                         rtol=rtol)
@@ -5126,18 +5142,25 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
     self.assertArraysEqual(np.r_[np.array([1,2,3]), 0, 0, np.array([4,5,6])],
                            jnp.r_[np.array([1,2,3]), 0, 0, np.array([4,5,6])])
     self.assertArraysEqual(np.r_['-1', a, a], jnp.r_['-1', a, a])
-    self.assertArraysEqual(np.r_['0,2', [1,2,3], [4,5,6]], jnp.r_['0,2', [1,2,3], [4,5,6]])
-    self.assertArraysEqual(np.r_['0,2,0', [1,2,3], [4,5,6]], jnp.r_['0,2,0', [1,2,3], [4,5,6]])
-    self.assertArraysEqual(np.r_['1,2,0', [1,2,3], [4,5,6]], jnp.r_['1,2,0', [1,2,3], [4,5,6]])
+    self.assertArraysEqual(np.r_['0,2', [1,2,3], [4,5,6]].astype(jnp.int_),
+                           jnp.r_['0,2', [1,2,3], [4,5,6]])
+    self.assertArraysEqual(np.r_['0,2,0', [1,2,3], [4,5,6]].astype(jnp.int_),
+                           jnp.r_['0,2,0', [1,2,3], [4,5,6]])
+    self.assertArraysEqual(np.r_['1,2,0', [1,2,3], [4,5,6]].astype(jnp.int_),
+                           jnp.r_['1,2,0', [1,2,3], [4,5,6]])
     # negative 1d axis start
-    self.assertArraysEqual(np.r_['0,4,-1', [1,2,3], [4,5,6]], jnp.r_['0,4,-1', [1,2,3], [4,5,6]])
-    self.assertArraysEqual(np.r_['0,4,-2', [1,2,3], [4,5,6]], jnp.r_['0,4,-2', [1,2,3], [4,5,6]])
+    self.assertArraysEqual(np.r_['0,4,-1', [1,2,3], [4,5,6]].astype(jnp.int_),
+                           jnp.r_['0,4,-1', [1,2,3], [4,5,6]])
+    self.assertArraysEqual(np.r_['0,4,-2', [1,2,3], [4,5,6]].astype(jnp.int_),
+                           jnp.r_['0,4,-2', [1,2,3], [4,5,6]])
 
     # matrix directives
     with warnings.catch_warnings():
       warnings.filterwarnings("ignore", category=PendingDeprecationWarning)
-      self.assertArraysEqual(np.r_['r',[1,2,3], [4,5,6]], jnp.r_['r',[1,2,3], [4,5,6]])
-      self.assertArraysEqual(np.r_['c', [1, 2, 3], [4, 5, 6]], jnp.r_['c', [1, 2, 3], [4, 5, 6]])
+      self.assertArraysEqual(np.r_['r',[1,2,3], [4,5,6]].astype(jnp.int_),
+                             jnp.r_['r',[1,2,3], [4,5,6]])
+      self.assertArraysEqual(np.r_['c', [1, 2, 3], [4, 5, 6]].astype(jnp.int_),
+                             jnp.r_['c', [1, 2, 3], [4, 5, 6]])
 
     # bad directive
     with self.assertRaisesRegex(ValueError, "could not understand directive.*"):
@@ -5150,16 +5173,16 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
     # Complex number steps
     atol = 1e-6
     rtol = 1e-6
-    self.assertAllClose(np.r_[-1:1:6j],
+    self.assertAllClose(np.r_[-1:1:6j].astype(jnp.float_),
                         jnp.r_[-1:1:6j],
                         atol=atol,
                         rtol=rtol)
-    self.assertAllClose(np.r_[-1:1:6j, [0]*3, 5, 6],
+    self.assertAllClose(np.r_[-1:1:6j, [0]*3, 5, 6].astype(jnp.float_),
                         jnp.r_[-1:1:6j, [0]*3, 5, 6],
                         atol=atol,
                         rtol=rtol)
     # Non-integer steps
-    self.assertAllClose(np.r_[1.2:4.8:0.24],
+    self.assertAllClose(np.r_[1.2:4.8:0.24].astype(jnp.float_),
                         jnp.r_[1.2:4.8:0.24],
                         atol=atol,
                         rtol=rtol)
@@ -5171,17 +5194,17 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
     self.assertArraysEqual(np.c_[np.array([[1,2,3]]), 0, 0, np.array([[4,5,6]])],
                            jnp.c_[np.array([[1,2,3]]), 0, 0, np.array([[4,5,6]])])
     self.assertArraysEqual(np.c_['-1', a, a], jnp.c_['-1', a, a])
-    self.assertArraysEqual(np.c_['0,2', [1,2,3], [4,5,6]], jnp.c_['0,2', [1,2,3], [4,5,6]])
-    self.assertArraysEqual(np.c_['0,2,0', [1,2,3], [4,5,6]], jnp.c_['0,2,0', [1,2,3], [4,5,6]])
-    self.assertArraysEqual(np.c_['1,2,0', [1,2,3], [4,5,6]], jnp.c_['1,2,0', [1,2,3], [4,5,6]])
+    self.assertArraysEqual(np.c_['0,2', [1,2,3], [4,5,6]].astype(jnp.int_), jnp.c_['0,2', [1,2,3], [4,5,6]])
+    self.assertArraysEqual(np.c_['0,2,0', [1,2,3], [4,5,6]].astype(jnp.int_), jnp.c_['0,2,0', [1,2,3], [4,5,6]])
+    self.assertArraysEqual(np.c_['1,2,0', [1,2,3], [4,5,6]].astype(jnp.int_), jnp.c_['1,2,0', [1,2,3], [4,5,6]])
     # negative 1d axis start
-    self.assertArraysEqual(np.c_['0,4,-1', [1,2,3], [4,5,6]], jnp.c_['0,4,-1', [1,2,3], [4,5,6]])
-    self.assertArraysEqual(np.c_['0,4,-2', [1,2,3], [4,5,6]], jnp.c_['0,4,-2', [1,2,3], [4,5,6]])
+    self.assertArraysEqual(np.c_['0,4,-1', [1,2,3], [4,5,6]].astype(jnp.int_), jnp.c_['0,4,-1', [1,2,3], [4,5,6]])
+    self.assertArraysEqual(np.c_['0,4,-2', [1,2,3], [4,5,6]].astype(jnp.int_), jnp.c_['0,4,-2', [1,2,3], [4,5,6]])
     # matrix directives, avoid numpy deprecation warning
     with warnings.catch_warnings():
       warnings.filterwarnings("ignore", category=PendingDeprecationWarning)
-      self.assertArraysEqual(np.c_['r',[1,2,3], [4,5,6]], jnp.c_['r',[1,2,3], [4,5,6]])
-      self.assertArraysEqual(np.c_['c', [1, 2, 3], [4, 5, 6]], jnp.c_['c', [1, 2, 3], [4, 5, 6]])
+      self.assertArraysEqual(np.c_['r',[1,2,3], [4,5,6]].astype(jnp.int_), jnp.c_['r',[1,2,3], [4,5,6]])
+      self.assertArraysEqual(np.c_['c', [1, 2, 3], [4, 5, 6]].astype(jnp.int_), jnp.c_['c', [1, 2, 3], [4, 5, 6]])
 
     # bad directive
     with self.assertRaisesRegex(ValueError, "could not understand directive.*"):
@@ -5194,13 +5217,13 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
     # Complex number steps
     atol = 1e-6
     rtol = 1e-6
-    self.assertAllClose(np.c_[-1:1:6j],
+    self.assertAllClose(np.c_[-1:1:6j].astype(jnp.float_),
                         jnp.c_[-1:1:6j],
                         atol=atol,
                         rtol=rtol)
 
     # Non-integer steps
-    self.assertAllClose(np.c_[1.2:4.8:0.24],
+    self.assertAllClose(np.c_[1.2:4.8:0.24].astype(jnp.float_),
                         jnp.c_[1.2:4.8:0.24],
                         atol=atol,
                         rtol=rtol)
@@ -5638,7 +5661,7 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
       jax.jit(lambda stop: jnp.arange(0, stop))(3)
 
   @parameterized.named_parameters(jtu.cases_from_list(
-    {"testcase_name": str(dtype), "dtype": dtype}
+    {"testcase_name": f"_dtype={str(dtype)}", "dtype": dtype}
     for dtype in [None] + float_dtypes))
   def testArange64Bit(self, dtype):
     # Test that jnp.arange uses 64-bit arithmetic to define its range, even if the
@@ -5654,7 +5677,7 @@ class LaxBackedNumpyTests(jtu.JaxTestCase):
     self.assertLen(np.arange(*map(np.float32, args)), 16)
 
     jnp_fun = lambda: jnp.arange(*args, dtype=dtype)
-    np_fun = lambda: np.arange(*args, dtype=dtype)
+    np_fun = lambda: np.arange(*args, dtype=dtype or jnp.float_)
     args_maker = lambda: []
     self._CheckAgainstNumpy(np_fun, jnp_fun, args_maker)
     self._CompileAndCheck(jnp_fun, args_maker)
