@@ -67,14 +67,22 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: "3.x"
+      - uses: actions/download-artifact@v3
+        with:
+          path: /tmp/workspace/logs
+      - name: Move all log files into a single directory
+        run: |
+          python .github/workflows/cat_slurm_logs.py /tmp/workspace/logs/outputs/*.txt --outfile=parsed-logs.txt
       - name: Report failures
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
+            const fs = require('fs');
+            const parsed_logs = fs.readFileSync('parsed-logs.txt', 'utf8');
             const title = "⚠️ Nightly GPU Multiprocess CI failed ⚠️"
             const workflow_url = `https://github.com/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
-            const issue_body = `[Workflow Run URL](${workflow_url})\n`
+            const issue_body = `[Workflow Run URL](${workflow_url})\n${parsed_logs}`
             // Run GraphQL query against GitHub API to find the most recent open issue used for reporting failures
             const query = `query($owner:String!, $name:String!, $creator:String!, $label:String!){
               repository(owner: $owner, name: $name) {
