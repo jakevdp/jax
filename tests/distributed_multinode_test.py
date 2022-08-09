@@ -25,6 +25,9 @@ import jax.numpy as jnp
     "Slurm environment with at least two nodes needed!")
 class MultiNodeGpuTest(jtu.JaxTestCase):
 
+  def test_failure(self):
+    assert False
+
   def test_gpu_multi_node_initialize_and_psum(self):
 
     # Hookup the ENV vars expected to be set already in the SLURM environment
