@@ -14,6 +14,7 @@
 """Script used in the nightly-ci-multiprocess-gpu workflow to process logs."""
 
 import argparse
+import glob
 from typing import List
 
 ISSUE_FORMAT = """\
@@ -26,18 +27,18 @@ ISSUE_FORMAT = """\
 </details>
 """
 
-def main(logfiles: List[str], outfile: str):
+def main(logfiles: str, outfile: str):
   print(f"extracting content of {logfiles}")
   print(f"and writing to {outfile}")
   with open(outfile, 'w') as f:
-    for logfile in logfiles:
+    for logfile in glob.glob(logfiles):
       content = open(logfile).read()
       f.write(ISSUE_FORMAT.format(name=logfile, content=content))
 
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser()
-  parser.add_argument("logfiles", nargs='+', help="The path to the input logfiles")
+  parser.add_argument("logfiles", help="The path to the input logfiles")
   parser.add_argument("--outfile", help="The path to the parsed output file to be created.",
                       default="parsed_logs.txt")
   args = parser.parse_args()
