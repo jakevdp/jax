@@ -73,7 +73,7 @@ jobs:
       - name: Move all log files into a single directory
         run: |
           ls /tmp/workspace/logs/output-from-nodes/
-          python .github/workflows/cat_slurm_logs.py '/tmp/workspace/logs/output-from-nodes/*.txt' --outfile=parsed-logs.txt
+          python .github/workflows/cat_slurm_logs.py /tmp/workspace/logs/output-from-nodes/*.txt --outfile=parsed-logs.txt
       - name: Report failures
         uses: actions/github-script@v6
         with:
