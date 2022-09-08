@@ -15,9 +15,11 @@
 from typing import cast
 
 from absl.testing import absltest
+
 import jax
 import jax.numpy as jnp
-from jax.array import Array, Tracer
+from jax._src.array import Array
+from jax.core import Tracer
 from jax._src import test_util as jtu
 
 
