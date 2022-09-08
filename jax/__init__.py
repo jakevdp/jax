@@ -111,6 +111,7 @@ from jax._src.api import (
   xla,  # TODO(phawkins): update users to avoid this.
   xla_computation as xla_computation,
 )
+from jax._src.array import Array as Array
 from jax.experimental.maps import soft_pmap as soft_pmap
 from jax.version import __version__ as __version__
 from jax.version import __version_info__ as __version_info__
