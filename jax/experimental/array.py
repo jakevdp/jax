@@ -142,9 +142,13 @@ def _use_python_method(f):
     _python_methods.add(f.__name__)
   return f
 
+class ArrayMeta(type):
+  def __instancecheck__(cls, val):
+    return super().__instancecheck__(val) or isinstance(val, core.Tracer)
 
-@_use_cpp_array
-class Array:
+# TODO(jakevdp): need to somehow add the metaclass to xc.Array
+# @_use_cpp_array
+class Array(metaclass=ArrayMeta):
   # TODO(yashkatariya): Add __slots__ here.
 
   @_use_cpp_method
