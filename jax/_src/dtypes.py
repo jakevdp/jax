@@ -23,6 +23,7 @@
 import functools
 from typing import cast, overload, Any, Dict, List, Optional, Set, Tuple, Union
 from typing_extensions import Literal
+import warnings
 
 import numpy as np
 
@@ -91,7 +92,7 @@ def to_complex_dtype(dtype: DTypeLike) -> DType:
 
 
 @functools.lru_cache(maxsize=None)
-def _canonicalize_dtype(x64_enabled: bool, allow_opaque_dtype: bool, dtype: Any) -> Union[DType, OpaqueDType]:
+def _canonicalize_dtype(x64_enabled: bool, allow_opaque_dtype: bool, dtype: Any) -> Tuple[Union[DType, OpaqueDType], bool]:
   """Convert from a dtype to a canonical dtype based on config.x64_enabled."""
   if jax.core.is_opaque_dtype(dtype):
     if not allow_opaque_dtype:
@@ -103,19 +104,30 @@ def _canonicalize_dtype(x64_enabled: bool, allow_opaque_dtype: bool, dtype: Any)
   except TypeError as e:
     raise TypeError(f'dtype {dtype!r} not understood') from e
 
+  canonicalized = dtype_ in _dtype_to_32bit_dtype
   if x64_enabled:
-    return dtype_
+    return dtype_, canonicalized
   else:
-    return _dtype_to_32bit_dtype.get(dtype_, dtype_)
+    return _dtype_to_32bit_dtype.get(dtype_, dtype_), canonicalized
 
 @overload
-def canonicalize_dtype(dtype: Any, allow_opaque_dtype: Literal[False] = False) -> DType: ...
+def canonicalize_dtype(dtype: Any, allow_opaque_dtype: Literal[False] = False, suppress_alert: bool = False) -> DType: ...
 
 @overload
-def canonicalize_dtype(dtype: Any, allow_opaque_dtype: bool = False) -> Union[DType, OpaqueDType]: ...
+def canonicalize_dtype(dtype: Any, allow_opaque_dtype: bool = False, suppress_alert: bool = False) -> Union[DType, OpaqueDType]: ...
 
-def canonicalize_dtype(dtype: Any, allow_opaque_dtype: bool = False) -> Union[DType, OpaqueDType]:
-  return _canonicalize_dtype(config.x64_enabled, allow_opaque_dtype, dtype)
+def canonicalize_dtype(dtype: Any, allow_opaque_dtype: bool = False, suppress_alert: bool = False) -> Union[DType, OpaqueDType]:
+  dtype_out, canonicalized = _canonicalize_dtype(config.x64_enabled, allow_opaque_dtype, dtype)
+  if canonicalized and not suppress_alert and config.jax_dtype_canonicalization_alert != 'none':
+    if config.x64_enabled:
+      msg = f"dtype={dtype} would be canonicalized in X32 mode."
+    else:
+      msg = f"dtype={dtype} canonicalized to {dtype_out}."
+    if config.jax_dtype_canonicalization_alert == 'warn':
+      warnings.warn(msg, stacklevel=3)
+    else:
+      raise ValueError(msg)
+  return dtype_out
 
 # Default dtypes corresponding to Python scalars.
 python_scalar_dtypes : Dict[type, DType] = {

@@ -877,6 +877,14 @@ config.define_enum_state(
           'This is a temporary flag that will be used during the process '
           'of deprecating the ``jax_enable_x64`` flag.'))
 
+config.define_enum_state(
+    name='jax_dtype_canonicalization_alert',
+    enum_values=['none', 'warn', 'error'],
+    default='none',
+    help=('Specify whether to emit a warning or an error for cases in which '
+          'setting jax_enable_x64=False would change the behavior of a program '
+          'by canonicalizing a dtype.'))
+
 numpy_dtype_promotion = config.define_enum_state(
     name='jax_numpy_dtype_promotion',
     enum_values=['standard', 'strict'],
