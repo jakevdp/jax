@@ -872,7 +872,7 @@ hlo_source_file_canonicalization_regex = config.define_string_state(
 config.define_enum_state(
     name='jax_default_dtype_bits',
     enum_values=['32', '64'],
-    default='64',
+    default='32',
     help=('Specify bit width of default dtypes, either 32-bit or 64-bit. '
           'This is a temporary flag that will be used during the process '
           'of deprecating the ``jax_enable_x64`` flag.'))
@@ -898,7 +898,7 @@ def _update_x64_thread_local(val):
 
 enable_x64 = config.define_bool_state(
     name='jax_enable_x64',
-    default=False,
+    default=True,
     help='Enable 64-bit types to be used',
     update_global_hook=_update_x64_global,
     update_thread_local_hook=_update_x64_thread_local)
