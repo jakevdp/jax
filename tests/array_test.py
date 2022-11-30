@@ -23,6 +23,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 from jax._src import dispatch
+from jax._src import dtypes
 from jax._src import test_util as jtu
 from jax._src.lib import xla_client as xc
 from jax._src.lib import xla_bridge as xb
@@ -293,7 +294,7 @@ class JaxArrayTest(jtu.JaxTestCase):
     a, input_data = create_array(
         input_shape, sharding.NamedSharding(global_mesh, P('x', 'y')))
     out = jnp.zeros_like(a)
-    expected = jnp.zeros(input_data.shape, dtype=int)
+    expected = jnp.zeros(input_data.shape, dtype=a.dtype)
     self.assertArraysEqual(out, expected)
     self.assertLen(out.addressable_shards, 8)
     for i in out.addressable_shards:
