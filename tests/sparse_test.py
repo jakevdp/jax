@@ -2192,6 +2192,31 @@ class BCSRTest(sptu.SparseTestCase):
     ],
     dtype=jtu.dtypes.floating + jtu.dtypes.complex,
   )
+  def test_bcsr_to_bcoo(self, shape, dtype, n_batch):
+    n_sparse = 2
+    n_dense = len(shape) - n_sparse - n_batch
+    rng = rand_sparse(self.rng())
+    M = rng(shape, dtype)
+    M_bcoo = sparse.BCOO.fromdense(M, n_batch=n_batch, n_dense=n_dense)
+    M_bcsr = sparse.BCSR.fromdense(M, n_batch=n_batch, n_dense=n_dense)
+
+    # TODO(jakevdp) track sorted_indices and unique_indices in BCSR and adjust test:
+    self.assertSparseArraysEquivalent(sparse.bcsr_to_bcoo(M_bcsr), M_bcoo,
+                                      assert_trees_equal=False)
+    self.assertSparseArraysEquivalent(jax.jit(sparse.bcsr_to_bcoo)(M_bcsr), M_bcoo,
+                                      assert_trees_equal=False)
+    if n_batch > 0:
+      self.assertSparseArraysEquivalent(jax.vmap(sparse.bcsr_to_bcoo)(M_bcsr), M_bcoo,
+                                        assert_trees_equal=False)
+
+
+  @jtu.sample_product(
+    [dict(shape=shape, n_batch=n_batch)
+      for shape in [(5, 8), (8, 5), (3, 4, 5), (3, 4, 3, 2)]
+      for n_batch in range(len(shape) - 1)
+    ],
+    dtype=jtu.dtypes.floating + jtu.dtypes.complex,
+  )
   def test_bcsr_dense_round_trip(self, shape, dtype, n_batch):
     n_sparse = 2
     n_dense = len(shape) - n_sparse - n_batch
@@ -2623,10 +2648,9 @@ class SparseObjectTest(sptu.SparseTestCase):
     self.assertEqual(indptr.dtype, jnp.int32)
     self.assertEqual(indptr.shape, shape[:n_batch] + (shape[n_batch] + 1,))
 
-    bcsr_to_bcoo = partial(sparse_bcsr._bcsr_to_bcoo, shape=shape)
-    self.assertArraysEqual(bcoo_indices, bcsr_to_bcoo(bcsr_indices, indptr))
+    self.assertArraysEqual(bcoo_indices, sparse_bcsr._bcsr_to_bcoo(bcsr_indices, indptr))
     args_maker_bcsr_to_bcoo = lambda: [bcsr_indices, indptr]
-    self._CompileAndCheck(bcsr_to_bcoo, args_maker_bcsr_to_bcoo)
+    self._CompileAndCheck(sparse_bcsr._bcsr_to_bcoo, args_maker_bcsr_to_bcoo)
 
 
 class SparseRandomTest(sptu.SparseTestCase):

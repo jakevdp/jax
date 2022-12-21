@@ -254,6 +254,7 @@ class BatchTracer(Tracer):
   def __init__(self, trace, val, batch_dim: Union[NotMapped, int, ConcatAxis],
                source_info: Optional[source_info_util.SourceInfo] = None):
     if config.jax_enable_checks:
+      print(f"{batch_dim=}")
       assert type(batch_dim) in (NotMapped, int, ConcatAxis)
       if type(batch_dim) is int:
         aval = raise_to_shaped(core.get_aval(val))

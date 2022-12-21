@@ -35,11 +35,16 @@ def is_sparse(x):
 
 class SparseTestCase(jtu.JaxTestCase):
   def assertSparseArraysEquivalent(self, x, y, *, check_dtypes=True, atol=None,
-                                   rtol=None, canonicalize_dtypes=True, err_msg=''):
+                                   rtol=None, canonicalize_dtypes=True, err_msg='',
+                                   assert_trees_equal=True):
+    assert type(x) is type(y)
+    assert x.shape == y.shape
+
     x_bufs, x_tree = tree_util.tree_flatten(x)
     y_bufs, y_tree = tree_util.tree_flatten(y)
 
-    self.assertEqual(x_tree, y_tree)
+    if assert_trees_equal:
+      self.assertEqual(x_tree, y_tree)
     self.assertAllClose(x_bufs, y_bufs, check_dtypes=check_dtypes, atol=atol, rtol=rtol,
                         canonicalize_dtypes=canonicalize_dtypes, err_msg=err_msg)
 

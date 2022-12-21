@@ -86,16 +86,53 @@ def _validate_bcsr(data: jnp.ndarray, indices: jnp.ndarray,
     raise ValueError(f"Invalid {data.shape=} for {nse=}, {n_batch=}, {n_dense=}")
   return props
 
+#--------------------------------------------------------------------
+# bcsr_to_bcoo
+bcsr_to_bcoo_p = core.Primitive('bcsr_to_bcoo')
+bcsr_to_bcoo_p.multiple_results = False
 
-def _bcsr_to_bcoo(indices: jnp.ndarray, indptr: jnp.ndarray, *,
-                  shape: Sequence[int]) -> jnp.ndarray:
-  """Given BCSR (indices, indptr), return BCOO (indices)."""
-  n_batch, _, _ = _validate_bcsr_indices(indices, indptr, shape)
-  csr_to_coo = _csr_to_coo
+def bcsr_to_bcoo(mat: BCSR) -> bcoo.BCOO:
+  bcoo_indices = _bcsr_to_bcoo(mat.indices, mat.indptr)
+  return bcoo.BCOO((mat.data, bcoo_indices), shape=mat.shape)
+
+def _bcsr_to_bcoo(indices: Array, indptr: Array) -> Array:
+  return bcsr_to_bcoo_p.bind(indices, indptr)
+
+@bcsr_to_bcoo_p.def_impl
+def _bcsr_to_bcoo_impl(indices, indptr):
+  _bcsr_to_bcoo_abstract_eval(indices, indptr)
+  n_batch = indices.ndim - 1
+  csr_to_coo = _bcsr_to_bcoo_unbatched
   for _ in range(n_batch):
     csr_to_coo = _broadcasting_vmap(csr_to_coo)
-  return jnp.stack(csr_to_coo(indices, indptr), axis=indices.ndim)
+  return csr_to_coo(indices, indptr)
 
+def _bcsr_to_bcoo_unbatched(indices, indptr):
+  assert indices.ndim == indptr.ndim == 1
+  row = jnp.cumsum(jnp.zeros_like(indices).at[indptr].add(1)) - 1
+  return jnp.stack([row, indices], axis=1)
+
+@bcsr_to_bcoo_p.def_abstract_eval
+def _bcsr_to_bcoo_abstract_eval(indices, indptr):
+  if indices.ndim != indptr.ndim:
+    raise ValueError("bcsr_to_bcoo: indices & indptr must have ndim=1. "
+                     f"Got {indices.ndim=}, {indptr.ndim=}.")
+  if indices.dtype != indptr.dtype:
+    raise ValueError("bcsr_to_bcoo: index dtypes must match. "
+                     f"Got {indices.dtype=}, {indptr.dtype=}")
+  batch_shape = lax.broadcast_shapes(indices.shape[:-1], indptr.shape[:-1])
+  return core.ShapedArray((*batch_shape, indices.shape[-1], 2), indices.dtype)
+
+def _bcsr_to_bcoo_batching_rule(batched_args, batch_dims):
+  indices, indptr = batched_args
+  batch_dims = list(batch_dims)
+  indices = lax.expand_dims(indices, 0) if batch_dims[0] is None else jnp.moveaxis(indices, batch_dims[0], 0)
+  indptr = lax.expand_dims(indptr, 0) if batch_dims[1] is None else jnp.moveaxis(indptr, batch_dims[1], 0)
+  return _bcsr_to_bcoo(indices, indptr), 0
+
+batching.primitive_batchers[bcsr_to_bcoo_p] = _bcsr_to_bcoo_batching_rule
+ad.defjvp_zero(bcsr_to_bcoo_p)
+mlir.register_lowering(bcsr_to_bcoo_p, mlir.lower_fun(_bcsr_to_bcoo_impl, multiple_results=False))
 
 #--------------------------------------------------------------------
 # bcsr_fromdense
@@ -240,7 +277,7 @@ def _bcsr_todense(data: ArrayLike, indices: ArrayLike, indptr: ArrayLike, *, sha
 
 @bcsr_todense_p.def_impl
 def _bcsr_todense_impl(data, indices, indptr, *, shape):
-  bcoo_indices = _bcsr_to_bcoo(indices, indptr, shape=shape)
+  bcoo_indices = _bcsr_to_bcoo(indices, indptr)
   return (bcoo.BCOO((data, bcoo_indices), shape=shape)).todense()
 
 
@@ -289,7 +326,7 @@ def bcsr_extract(indices: ArrayLike, indptr: ArrayLike, mat: ArrayLike) -> Array
 @bcsr_extract_p.def_impl
 def _bcsr_extract_impl(indices, indptr, mat):
   mat = jnp.asarray(mat)
-  bcoo_indices = _bcsr_to_bcoo(indices, indptr, shape=mat.shape)
+  bcoo_indices = _bcsr_to_bcoo(indices, indptr)
   return bcoo.bcoo_extract(bcoo_indices, mat)
 
 
@@ -369,8 +406,7 @@ def _bcsr_dot_general_impl(lhs_data, lhs_indices, lhs_indptr, rhs, *,
   lhs_bcsr_indices = jnp.asarray(lhs_indices)
   lhs_bcsr_indptr = jnp.asarray(lhs_indptr)
   rhs = jnp.asarray(rhs)
-  lhs_bcoo_indices = _bcsr_to_bcoo(lhs_bcsr_indices, lhs_bcsr_indptr,
-                                   shape=lhs_spinfo.shape)
+  lhs_bcoo_indices = _bcsr_to_bcoo(lhs_bcsr_indices, lhs_bcsr_indptr)
   return bcoo._bcoo_dot_general_impl(lhs_data, lhs_bcoo_indices, rhs,
                                      dimension_numbers=dimension_numbers,
                                      lhs_spinfo=lhs_spinfo)
@@ -419,8 +455,7 @@ def _bcsr_dot_general_abstract_eval(lhs_data, lhs_indices, lhs_indptr, rhs, *,
 
 # def _bcsr_dot_general_transpose(ct, lhs_data, lhs_indices, lhs_inptr, rhs, *,
 #                                  dimension_numbers, lhs_spinfo):
-#   lhs_bcoo_indices = _bcsr_to_bcoo(
-#     lhs_indices, lhs_inptr, shape=lhs_spinfo.shape)
+#   lhs_bcoo_indices = _bcsr_to_bcoo(lhs_indices, lhs_inptr)
 #   return bcoo._bcoo_dot_general_transpose(
 #       ct, lhs_data, lhs_bcoo_indices, rhs, dimension_numbers=dimension_numbers,
 #       lhs_spinfo=lhs_spinfo)
@@ -429,8 +464,7 @@ def _bcsr_dot_general_abstract_eval(lhs_data, lhs_indices, lhs_indptr, rhs, *,
 # def _bcsr_dot_general_batch_rule(batched_args, batch_dims, *,
 #                                  dimension_numbers, lhs_spinfo):
 #   lhs_data, lhs_indices, lhs_indptr, rhs = batched_args
-#   lhs_bcoo_indices = _bcsr_to_bcoo(
-#     lhs_indices, lhs_indptr, shape=lhs_spinfo.shape)
+#   lhs_bcoo_indices = _bcsr_to_bcoo(lhs_indices, lhs_indptr)
 #   return bcoo._bcoo_dot_general_batch_rule(
 #       (lhs_data, lhs_bcoo_indices, rhs), batch_dims,
 #       dimension_numbers=dimension_numbers, lhs_spinfo=lhs_spinfo)
