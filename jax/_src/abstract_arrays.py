@@ -40,10 +40,9 @@ def zeros_like_array(x):
 numpy_scalar_types = {
     np.int8, np.int16, np.int32, np.int64,
     np.uint8, np.uint16, np.uint32, np.uint64,
-    dtypes.bfloat16, np.float16, np.float32, np.float64,
     np.complex64, np.complex128,
     np.bool_, np.longlong, np.intc,
-}
+} | set(dtypes._float_types)
 
 array_types = {np.ndarray} | numpy_scalar_types
 
