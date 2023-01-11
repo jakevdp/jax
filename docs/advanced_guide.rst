@@ -3,8 +3,8 @@
 .. _advanced_guide:
 
 
-Advanced Users
-==============
+User Guides
+===========
 
 The following resources will provide information for advanced functionality in JAX
 
