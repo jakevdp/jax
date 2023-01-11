@@ -425,7 +425,7 @@ if _fp8_enabled:
     np.dtype('float64'),
   ]
 else:
-  _float_types: List[JAXType] = [
+  _float_types = [
     np.dtype(bfloat16),
     np.dtype('float16'),
     np.dtype('float32'),
