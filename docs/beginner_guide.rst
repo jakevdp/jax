@@ -41,6 +41,6 @@ If you prefer a video format here is an introduction from Jake Vanderplas .
 	allowfullscreen></iframe>
 
 Installing JAX
-==============
+--------------
 Installation instructions are available on the `Install Guide <https://github.com/google/jax#installation>`_
 Alternatively Jax comes preinstalled on `Google Colab <https://colab.research.google.com>`_.

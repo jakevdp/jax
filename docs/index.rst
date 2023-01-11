@@ -1,17 +1,8 @@
-JAX reference documentation
-===========================
+JAX: High-Performance Array Computing
+=====================================
 
-JAX is Autograd_ and XLA_, brought together for high-performance numerical computing and machine learning research.
-It provides composable transformations of Python+NumPy programs: differentiate, vectorize,
-parallelize, Just-In-Time compile to GPU/TPU, and more.
+JAX is Autograd_ and XLA_, brought together for high-performance numerical computing.
 
-.. note::
-   JAX 0.4.1 introduces new parallelism APIs, including breaking changes to :func:`jax.experimental.pjit` and a new unified ``jax.Array`` type.
-   Please see `Distributed arrays and automatic parallelization <https://jax.readthedocs.io/en/latest/notebooks/Distributed_arrays_and_automatic_parallelization.html>`_ tutorial and the :ref:`jax-array-migration`
-   guide for more information.
-
-Key Ideas of Jax
-================
 .. grid:: 3
 
    .. grid-item::
@@ -38,43 +29,48 @@ Key Ideas of Jax
 
          The same code executes on multiple backends, including CPU, GPU, & TPU
 
+.. note::
+   JAX 0.4.1 introduces new parallelism APIs, including breaking changes to :func:`jax.experimental.pjit` and a new unified ``jax.Array`` type.
+   Please see `Distributed arrays and automatic parallelization <https://jax.readthedocs.io/en/latest/notebooks/Distributed_arrays_and_automatic_parallelization.html>`_ tutorial and the :ref:`jax-array-migration`
+   guide for more information.
 
-User Guides
-===============
 
 .. grid:: 3
 
     .. grid-item::
 
-      .. card:: 
+      .. card:: :material-regular:`rocket_launch;2em` Getting Started
          :link: beginner_guide
          :link-type: ref
-         :class-card: beginner-guide
-
-         Getting Started
+         :class-card: getting-started
 
     .. grid-item::
 
-      .. card:: 
+      .. card:: :material-regular:`library_books;2em` User Guides
          :link: advanced_guide
          :link-type: ref
-         :class-card: advanced-guide
-
-         Advanced Usage
+         :class-card: user-guides
 
     .. grid-item::
 
-      .. card:: 
+      .. card:: :material-regular:`laptop_chromebook;2em` Developer Docs
          :link: contributor_guide
          :link-type: ref
-         :class-card: contributor-guide
+         :class-card: developer-docs
 
-         Developer Resources
+Installation
+------------
+
+.. code-block:: bash
+
+   pip install "jax[cpu]"
+
+For installation on accelerators (GPU, TPU) and other installation options,
+see the `Install Guide`_ in the project README.
 
 
-Reference Links
-===============
 .. toctree::
+   :hidden:
    :maxdepth: 1
    :caption: Getting Started
 
@@ -82,8 +78,10 @@ Reference Links
    notebooks/quickstart
    notebooks/thinking_in_jax
    notebooks/Common_Gotchas_in_JAX
+   jax-101/index
 
 .. toctree::
+   :hidden:
    :maxdepth: 1
    :caption: Reference Documentation
 
@@ -101,12 +99,14 @@ Reference Links
    changelog
 
 .. toctree::
+   :hidden:
    :maxdepth: 1
    :caption: API documentation
 
    jax
 
 .. toctree::
+   :hidden:
    :maxdepth: 1
    :caption: Notes
 
@@ -119,13 +119,6 @@ Reference Links
    rank_promotion_warning
 
 
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
-
-
 .. _Autograd: https://github.com/hips/autograd
 .. _XLA: https://www.tensorflow.org/xla
+.. _Install Guide: https://github.com/google/jax#installation
