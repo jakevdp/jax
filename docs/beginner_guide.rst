@@ -18,8 +18,8 @@ If looking to jump straight in take a look at the JAX quickstart.
 
    notebooks/quickstart
 
-For most users starting out the key functionalities of JAX to become familiar with are `jax.jit`,
-`jax.grad`, and `jax.vmap`. 
+For most users starting out the key functionalities of JAX to become familiar with are :code:`jax.jit`,
+:code:`jax.grad`, and :code:`jax.vmap`. 
 A good way to get familiar with this is with the Jax-101 tutorials.
 
 .. toctree::
