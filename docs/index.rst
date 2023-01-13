@@ -40,21 +40,21 @@ JAX is Autograd_ and XLA_, brought together for high-performance numerical compu
     .. grid-item::
 
       .. card:: :material-regular:`rocket_launch;2em` Getting Started
-         :link: beginner_guide
+         :link: beginner-guide
          :link-type: ref
          :class-card: getting-started
 
     .. grid-item::
 
       .. card:: :material-regular:`library_books;2em` User Guides
-         :link: advanced_guide
+         :link: user-guide
          :link-type: ref
          :class-card: user-guides
 
     .. grid-item::
 
       .. card:: :material-regular:`laptop_chromebook;2em` Developer Docs
-         :link: contributor_guide
+         :link: contributor-guide
          :link-type: ref
          :class-card: developer-docs
 
@@ -78,83 +78,25 @@ see the `Install Guide`_ in the project README.
    notebooks/quickstart
    notebooks/thinking_in_jax
    notebooks/Common_Gotchas_in_JAX
-   jax-101/index
-
-.. toctree::
-   :hidden:
-   :maxdepth: 1
-   :caption: Reference Documentation
-
    faq
-   async_dispatch
-   aot
-   jaxpr
-   notebooks/convolutions
-   pytrees
-   jax_array_migration
-   type_promotion
-   errors
-   transfer_guard
-   glossary
-   changelog
 
 .. toctree::
    :hidden:
    :maxdepth: 1
-   :caption: Advanced JAX Tutorials
 
-   notebooks/autodiff_cookbook
-   multi_process
-   notebooks/Distributed_arrays_and_automatic_parallelization
-   notebooks/vmapped_log_probs
-   notebooks/neural_network_with_tfds_data
-   notebooks/Custom_derivative_rules_for_Python_code
-   notebooks/How_JAX_primitives_work
-   notebooks/Writing_custom_interpreters_in_Jax
-   notebooks/Neural_Network_and_Data_Loading
-   notebooks/xmap_tutorial
-   notebooks/external_callbacks
-   Custom_Operation_for_GPUs
+   jax-101/index
 
 
 .. toctree::
    :hidden:
    :maxdepth: 2
+   :caption: Further Resources
 
-   debugging/index
-
-.. toctree::
-   :hidden:
-   :maxdepth: 1
-   :caption: API documentation
-
+   user_guide
+   advanced_guide
+   contributor_guide
+   notes
    jax
-
-
-.. toctree::
-   :hidden:
-   :maxdepth: 1
-   :caption: Developer documentation
-
-   contributing
-   developer
-   jax_internal_api
-   autodidax
-   jep/index
-
-
-.. toctree::
-   :hidden:
-   :maxdepth: 1
-   :caption: Notes
-
-   api_compatibility
-   deprecation
-   concurrency
-   gpu_memory_allocation
-   profiling
-   device_memory_profiling
-   rank_promotion_warning
 
 
 .. _Autograd: https://github.com/hips/autograd

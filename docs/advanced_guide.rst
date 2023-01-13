@@ -1,17 +1,10 @@
-:orphan:
-
 .. _advanced_guide:
 
-
-User Guides
-===========
-
-The following resources will provide information for advanced functionality in JAX
-
+Advanced Tutorials
+==================
 
 .. toctree::
    :maxdepth: 1
-   :caption: Advanced JAX Tutorials
 
    notebooks/autodiff_cookbook
    multi_process
@@ -25,9 +18,3 @@ The following resources will provide information for advanced functionality in J
    notebooks/xmap_tutorial
    notebooks/external_callbacks
    Custom_Operation_for_GPUs
-
-
-.. toctree::
-   :maxdepth: 2
-
-   debugging/index

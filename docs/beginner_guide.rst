@@ -1,6 +1,6 @@
 :orphan:
 
-.. _beginner_guide:
+.. _beginner-guide:
 
 
 Beginner Guide
@@ -27,7 +27,17 @@ A good way to get familiar with this is with the Jax-101 tutorials.
 
    jax-101/index
 
-If you prefer a video introduction here is one from Jake Vanderplas .
+If you're familiar with doing array-oriented computing with NumPy, you may find the following
+resources useful:
+
+.. toctree::
+   :maxdepth: 1
+
+   notebooks/thinking_in_jax
+   notebooks/Common_Gotchas_in_JAX
+   faq
+
+If you prefer a video introduction here is one from JAX contributor Jake Vanderplas:
 
 .. raw:: html
 
