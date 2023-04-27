@@ -299,8 +299,8 @@ class PRNGKeyArrayImpl(PRNGKeyArray):
 
 _set_array_base_attributes(PRNGKeyArrayImpl, include=[
     *(f"__{op}__" for op in _array_operators),
-    'at', 'flatten', 'ravel', 'reshape',
-    'squeeze', 'swapaxes', 'take', 'transpose', 'T'])
+    'at', 'flatten', 'ravel', 'reshape', 'squeeze',
+    'swapaxes', 'take', 'transpose', 'T', 'view'])
 basearray.Array.register(PRNGKeyArrayImpl)
 
 
@@ -517,6 +517,14 @@ class KeyTyRules:
                   keys_aval_to_base_arr_aval(aval_updates)],
         avals_out=[keys_aval_to_base_arr_aval(aval_y)])
     return res
+  
+  @staticmethod
+  def bitcast_convert_type_mlir(ctx, aval_in, aval_out, operand):
+    if core.is_opaque_dtype(aval_out.dtype):
+      raise ValueError(
+          "Creating random keys via bitcast_convert_type is not supported. "
+          "Use random_wrap() instead.")
+    return hlo.BitcastConvertOp(mlir.aval_to_ir_type(aval_out), operand).results
 
   def _comparison_mlir(direction, reduction_op, identity,
                        ctx, avals_in, aval_out, x, y, **kwargs):
@@ -542,6 +550,10 @@ class KeyTyRules:
 class KeyTy:
   impl: Hashable  # prng.PRNGImpl. TODO(mattjj,frostig): protocol really
   _rules = KeyTyRules
+
+  @property
+  def itemsize(self):
+    return math.prod(self.impl.key_shape) * np.dtype('uint32').itemsize
 
   def __init__(self, impl):
     self.impl = impl

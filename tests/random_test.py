@@ -2162,7 +2162,19 @@ class JnpWithKeyArrayTest(jtu.JaxTestCase):
     self.check_shape(key_func, keys, key)
     self.check_against_reference(key_func, arr_func, keys, key)
 
+  def test_bitcast_convert_type(self):
+    key = random.PRNGKey(123)
+    keys = jax.random.split(key, 3)
 
+    out = jax.lax.bitcast_convert_type(keys, 'uint32')
+    self.assertArraysEqual(out, keys.unsafe_raw_array())
+
+    out_view = keys[:, None].view('uint32')
+    self.assertArraysEqual(out_view, keys.unsafe_raw_array())
+
+    with self.assertRaisesRegex(
+        ValueError, "Creating random keys via bitcast_convert_type is not supported"):
+      out.view(key.dtype)
 
   def test_errors(self):
     key = random.PRNGKey(123)

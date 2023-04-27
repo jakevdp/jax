@@ -193,7 +193,7 @@ def _view(arr: Array, dtype: DTypeLike = None, type: None = None) -> Array:
   arr = lax_numpy.asarray(arr)
 
   dtypes.check_user_dtype_supported(dtype, "view")
-  dtype = dtypes.canonicalize_dtype(dtype)
+  dtype = dtypes.canonicalize_dtype(dtype, allow_opaque_dtype=True)
 
   if arr.ndim == 0:
     if arr.dtype.itemsize != dtype.itemsize:

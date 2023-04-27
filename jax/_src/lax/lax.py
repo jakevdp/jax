@@ -575,7 +575,7 @@ def bitcast_convert_type(operand: ArrayLike, new_dtype: DTypeLike) -> Array:
     An array of shape `output_shape` (see above) and type `new_dtype`,
     constructed from the same bits as operand.
   """
-  new_dtype = dtypes.canonicalize_dtype(new_dtype)
+  new_dtype = dtypes.canonicalize_dtype(new_dtype, allow_opaque_dtype=True)
   return bitcast_convert_type_p.bind(operand, new_dtype=new_dtype)
 
 def clamp(min: ArrayLike, x: ArrayLike, max: ArrayLike) -> Array:
@@ -2328,8 +2328,8 @@ mlir.register_lowering(convert_element_type_p, _convert_element_type_lower)
 
 
 def _bitcast_convert_type_shape_rule(operand, *, new_dtype):
-  old_dtype = dtypes.canonicalize_dtype(operand.dtype)
-  new_dtype = dtypes.canonicalize_dtype(new_dtype)
+  old_dtype = dtypes.canonicalize_dtype(operand.dtype, allow_opaque_dtype=True)
+  new_dtype = dtypes.canonicalize_dtype(new_dtype, allow_opaque_dtype=True)
 
   if old_dtype.itemsize == new_dtype.itemsize:
     return operand.shape
@@ -2346,8 +2346,8 @@ def _bitcast_convert_type_shape_rule(operand, *, new_dtype):
     return operand.shape[:-1]
 
 def _bitcast_convert_type_dtype_rule(operand, *, new_dtype):
-  old_dtype = dtypes.canonicalize_dtype(operand.dtype)
-  new_dtype = dtypes.canonicalize_dtype(new_dtype)
+  old_dtype = dtypes.canonicalize_dtype(operand.dtype, allow_opaque_dtype=True)
+  new_dtype = dtypes.canonicalize_dtype(new_dtype, allow_opaque_dtype=True)
   if (dtypes.issubdtype(old_dtype, np.bool_) or
       dtypes.issubdtype(old_dtype, np.complexfloating) or
       dtypes.issubdtype(new_dtype, np.bool_) or
@@ -2366,7 +2366,11 @@ ad.defjvp_zero(bitcast_convert_type_p)
 batching.defvectorized(bitcast_convert_type_p)
 
 def _bitcast_convert_type_lower(ctx, operand, *, new_dtype):
+  aval_in, = ctx.avals_in
   aval_out, = ctx.avals_out
+  for dtype in [aval_in.dtype, aval_out.dtype]:
+    if core.is_opaque_dtype(dtype):
+      return dtype._rules.bitcast_convert_type_mlir(ctx, aval_in, aval_out, operand)
   return hlo.BitcastConvertOp(mlir.aval_to_ir_type(aval_out), operand).results
 
 mlir.register_lowering(bitcast_convert_type_p, _bitcast_convert_type_lower)
