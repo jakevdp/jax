@@ -14,18 +14,23 @@
 from __future__ import annotations
 
 import abc
-from functools import partial, reduce
+from functools import partial, reduce, wraps
 import math
 import operator as op
-from typing import Any, Callable, Hashable, Iterator, NamedTuple, Sequence, Tuple, Union
+from typing import Any, Callable, Hashable, Iterator, NamedTuple, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
+import jax
 from jax import lax
 from jax import numpy as jnp
 from jax import tree_util
 
+from jax.interpreters import partial_eval as pe
+from jax.linear_util import wrap_init
+
 from jax._src import api
+from jax._src import api_util
 from jax._src import basearray
 from jax._src import config as config_lib
 from jax._src import core
@@ -52,7 +57,7 @@ from jax._src.partition_spec import PartitionSpec
 from jax._src.sharding_impls import (
     NamedSharding, PmapSharding, GSPMDSharding, XLACompatibleSharding)
 from jax._src.typing import Array
-from jax._src.util import safe_map, safe_zip
+from jax._src.util import safe_map, safe_zip, unzip2
 
 map, unsafe_map = safe_map, map
 zip, unsafe_zip = safe_zip, zip
@@ -1397,3 +1402,84 @@ unsafe_rbg_prng_impl = PRNGImpl(
     random_bits=_rbg_random_bits,
     fold_in=_unsafe_rbg_fold_in,
     tag='urbg')
+
+
+def splat_keys(fun, *args, **kwargs):
+  """
+  Transform a function into a version which accepts splatted keys.
+  """
+  args_flat, in_tree = tree_util.tree_flatten((args, kwargs))
+  in_avals_flat = [core.get_aval(arg) for arg in args_flat]
+  wrapped_fun, out_tree = api_util.flatten_fun(wrap_init(fun), in_tree)
+  jaxpr, out_avals_flat, consts = pe.trace_to_jaxpr_dynamic(
+      wrapped_fun, in_avals_flat
+  )
+  physical_in_avals, in_impls = unzip2(
+    (keys_aval_to_base_arr_aval(aval), aval.dtype.impl)
+    if isinstance(aval.dtype, KeyTy) else (aval, None)
+    for aval in in_avals_flat
+  )
+  physical_out_avals, out_impls = unzip2(
+    (keys_aval_to_base_arr_aval(aval), aval.dtype.impl)
+    if isinstance(aval.dtype, KeyTy) else (aval, None)
+    for aval in out_avals_flat
+  )
+  out_tree = out_tree()
+  # TODO(jakevdp): handle consts?
+  @wraps(fun)
+  def wrapped(*args, **kwargs):
+    args_flat, in_tree = tree_util.tree_flatten((args, kwargs))
+    in_avals_flat = tuple(core.get_aval(arg) for arg in args_flat)
+    assert all(a.shape == b.shape and a.dtype == b.dtype
+               for a, b in safe_zip(in_avals_flat, physical_in_avals))
+    args = [arg if impl is None else random_wrap(arg, impl=impl)
+            for arg, impl in safe_zip(args_flat, in_impls)]
+    result = _splatted_jaxpr(jaxpr, consts, *args)
+    physical_result = [
+      random_unwrap(res) if isinstance(res.dtype, KeyTy) else res
+      for res in result
+    ]
+    assert all(a.shape == b.shape and a.dtype == b.dtype
+               for a, b in safe_zip(physical_out_avals, physical_result))
+    return tree_util.tree_unflatten(out_tree, physical_result)
+  out_impls = tree_util.tree_unflatten(out_tree, out_impls)
+  return wrapped, out_impls
+
+
+def _splatted_jaxpr(jaxpr, consts, *args):
+  env = {}
+  
+  def read(var):
+    if type(var) is core.Literal:
+      return var.val
+    return env[var]
+
+  def write(var, val, impl=None):
+    env[var] = val
+
+  safe_map(write, jaxpr.invars, args)
+  safe_map(write, jaxpr.constvars, consts)
+
+  for eqn in jaxpr.eqns:
+    invals = safe_map(read, eqn.invars)
+    if eqn.primitive in splat_registry:
+      outvals = splat_registry[eqn.primitive](*invals, **eqn.params)
+    else:
+      outvals = eqn.primitive.bind(*invals, **eqn.params)
+    if not eqn.primitive.multiple_results:
+      outvals = [outvals]
+    safe_map(write, eqn.outvars, outvals)
+  return safe_map(read, jaxpr.outvars)
+
+
+splat_registry = {}
+
+def _splat_random_seed(seed, *, impl):
+  if not isinstance(seed, Array):
+    seed = jax.device_put(seed)
+  return random_seed_p.bind(seed, impl=impl)
+splat_registry[random_seed_p] = _splat_random_seed
+
+def _splat_random_bits(keys, *, bit_width, shape):
+  return random_bits_p.bind(keys, bit_width=bit_width, shape=shape)
+splat_registry[random_bits_p] = _splat_random_bits

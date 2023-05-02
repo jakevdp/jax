@@ -2246,6 +2246,24 @@ for test_prefix in [
               _sampler_unimplemented_with_custom_prng)
       setattr(LaxRandomWithUnsafeRBGPRNGTest, attr,
               _sampler_unimplemented_with_custom_prng)
+      
+
+@skipIf(not config.jax_enable_custom_prng,
+        'custom PRNG tests require config.jax_enable_custom_prng')
+class SplatTransformTest(jtu.JaxTestCase):
+  def test_keys_in_keys_out(self):
+    key = jax.random.PRNGKey(0)
+
+    def f(key):
+      return jax.random.fold_in(key, 1)
+    
+    f_raw, out_impl = prng_internal.splat_keys(f, key)
+
+    out1 = f(key)
+    out_raw = f_raw(key.unsafe_raw_array())
+
+    self.assertEqual(out_impl, out1.dtype.impl)
+    self.assertArraysEqual(out_raw, out1.unsafe_raw_array())
 
 
 if __name__ == "__main__":
