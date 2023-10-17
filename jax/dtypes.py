@@ -18,10 +18,10 @@
 from jax._src.dtypes import (
     bfloat16 as bfloat16,
     canonicalize_dtype as canonicalize_dtype,
-    finfo,  # TODO(phawkins): switch callers to jnp.finfo?
+    finfo as finfo,
     float0 as float0,
-    iinfo,  # TODO(phawkins): switch callers to jnp.iinfo?
-    issubdtype,  # TODO(phawkins): switch callers to jnp.issubdtype?
+    iinfo as iinfo,
+    issubdtype as issubdtype,
     extended as extended,
     prng_key as prng_key,
     result_type as result_type,
