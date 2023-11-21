@@ -19,6 +19,7 @@ JAX 101
 
    installation
    quickstart
+   core-concepts
    jax-as-accelerated-numpy
    automatic-differentiation
    jit-compilation
