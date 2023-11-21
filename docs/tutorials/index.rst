@@ -22,6 +22,7 @@ JAX 101
    core-concepts
    jax-as-accelerated-numpy
    automatic-differentiation
+   automatic-vectorization
    jit-compilation
    random-numbers
    working-with-pytrees

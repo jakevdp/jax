@@ -1,3 +1,4 @@
+(jit-compilation)=
 # Just-in-time compilation
 
 ```{note}
