@@ -251,6 +251,10 @@ def _any(predicates: Array) -> Array:
   return reduce(predicates, f, bitwise_or, all_dimensions)
 
 def _igamma_series(ax, x, a, enabled, dtype, mode):
+  # Avoid possibly slow convergence for disabled values
+  x = select(enabled, x, _ones(x))
+  a = select(enabled, a, _ones(a))
+
   def cond_fn(vals):
     return _any(vals[0])
 
@@ -328,6 +332,10 @@ def igamma_impl(a, x, *, dtype):
   return output
 
 def _igammac_continued_fraction(ax, x, a, enabled, dtype, mode):
+  # Avoid possibly slow convergence for disabled values
+  x = select(enabled, x, _ones(x))
+  a = select(enabled, a, _ones(a))
+
   eps = dtypes.finfo(dtype).eps
 
   def cond_fn(vals):
