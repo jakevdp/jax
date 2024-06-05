@@ -28,7 +28,6 @@ import numpy as np
 import jax
 from jax._src import core
 from jax._src import distributed
-from jax._src import maps
 from jax._src import test_util as jtu
 from jax._src import util
 from jax.experimental import pjit
@@ -224,6 +223,7 @@ class MultiProcessGpuTest(jtu.JaxTestCase):
     os.environ.get("SLURM_JOB_NUM_NODES", None) != "2",
     "Slurm environment with at least two nodes needed!")
 @jtu.pytest_mark_if_available('SlurmMultiNodeGpuTest')
+@jtu.with_config(experimental_xmap_spmd_lowering=True)
 class SlurmMultiNodeGpuTest(jtu.JaxTestCase):
 
   def sorted_devices(self):
@@ -256,16 +256,6 @@ class SlurmMultiNodeGpuTest(jtu.JaxTestCase):
            ] == [0, 2, 4, 6, 1, 3, 5, 7, 8, 10, 12, 14, 9, 11, 13, 15]
     return jax.sharding.Mesh(device_mesh, ("x", "y"))
 
-  def setUp(self):
-    super().setUp()
-    self.xmap_spmd_lowering_enabled = maps.SPMD_LOWERING.value
-    jax.config.update("experimental_xmap_spmd_lowering", True)
-
-  def tearDown(self):
-    jax.config.update("experimental_xmap_spmd_lowering",
-                      self.xmap_spmd_lowering_enabled)
-    super().tearDown()
-
   def test_gpu_multi_node_initialize_and_psum(self):
 
     # Hookup the ENV vars expected to be set already in the SLURM environment
@@ -287,23 +277,20 @@ class SlurmMultiNodeGpuTest(jtu.JaxTestCase):
         coordinator_address is None or num_tasks is None or taskid is None,
         False)
 
-    # os.environ["CUDA_VISIBLE_DEVICES"] = localid #WAR for Bug:12119
-    jax.config.update("jax_cuda_visible_devices", localid)
+    with jtu.global_config_context(jax_cuda_local_devices=localid):
+      jax.distributed.initialize(coordinator_address=f'{coordinator_address}:{port}',
+                                num_processes=int(num_tasks),
+                                process_id=int(taskid))
 
-    jax.distributed.initialize(coordinator_address=f'{coordinator_address}:{port}',
-                               num_processes=int(num_tasks),
-                               process_id=int(taskid))
+      print(f"Total devices: {jax.device_count()}, Total tasks: {int(num_tasks)}, "
+            f"Devices per task: {jax.local_device_count()}")
 
-    print(f"Total devices: {jax.device_count()}, Total tasks: {int(num_tasks)}, "
-          f"Devices per task: {jax.local_device_count()}")
+      self.assertEqual(jax.device_count(),
+                      int(num_tasks) * jax.local_device_count())
 
-    self.assertEqual(jax.device_count(),
-                     int(num_tasks) * jax.local_device_count())
-
-    x = jnp.ones(jax.local_device_count())
-    y = jax.pmap(lambda x: jax.lax.psum(x, "i"), axis_name="i")(x)
-    self.assertEqual(y[0], jax.device_count())
-    print(y)
+      x = jnp.ones(jax.local_device_count())
+      y = jax.pmap(lambda x: jax.lax.psum(x, "i"), axis_name="i")(x)
+      self.assertEqual(y[0], jax.device_count())
 
   def test_gpu_multi_node_transparent_initialize_and_psum(self):
 

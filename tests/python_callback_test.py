@@ -754,11 +754,9 @@ class PureCallbackTest(jtu.JaxTestCase):
     if not hasattr(xla_client.OpSharding.Type, 'MANUAL'):
       raise unittest.SkipTest('Manual partitioning needed for pure_callback')
 
-    spmd_lowering = maps.SPMD_LOWERING.value
-    spmd_manual_lowering = maps.SPMD_LOWERING_MANUAL.value
-    config.update('experimental_xmap_spmd_lowering', True)
-    config.update('experimental_xmap_spmd_lowering_manual', True)
-    try:
+    with jtu.global_config_context(
+        experimental_xmap_spmd_lowering=True,
+        experimental_xmap_spmd_lowering_manual=True):
       mesh = Mesh(np.array(jax.devices()), axis_names=('x',))
 
       spec = jax.sharding.PartitionSpec('x')
@@ -773,21 +771,12 @@ class PureCallbackTest(jtu.JaxTestCase):
             axis_sizes=mesh.shape,
         )(x)
 
-      def without_xmap_f(x):
-        return jax.pure_callback(np.sin, x, x)
-
       with mesh:
         inp = jnp.arange(float(jax.local_device_count()))
         out = pjit.pjit(f, in_shardings=spec, out_shardings=spec)(inp)
         np.testing.assert_allclose(
             out, np.sin(np.arange(jax.local_device_count()))
         )
-    finally:
-      config.update('experimental_xmap_spmd_lowering', spmd_lowering)
-      config.update(
-        'experimental_xmap_spmd_lowering_manual',
-        spmd_manual_lowering,
-      )
 
   def test_cant_take_grad_of_pure_callback(self):
 

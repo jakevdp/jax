@@ -3246,15 +3246,8 @@ class EagerPmapMixin:
 
   def setUp(self):
     super().setUp()
-    self.eager_pmap_enabled = config.eager_pmap.value
-    self.jit_disabled = config.disable_jit.value
-    config.update('jax_disable_jit', True)
-    config.update('jax_eager_pmap', True)
-
-  def tearDown(self):
-    config.update('jax_eager_pmap', self.eager_pmap_enabled)
-    config.update('jax_disable_jit', self.jit_disabled)
-    super().tearDown()
+    self.enter_context(jax.disable_jit(True))
+    self.enter_context(config.eager_pmap(True))
 
 @jtu.pytest_mark_if_available('multiaccelerator')
 class PythonPmapEagerTest(EagerPmapMixin, PythonPmapTest):

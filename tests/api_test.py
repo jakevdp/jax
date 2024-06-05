@@ -4137,14 +4137,15 @@ class APITest(jtu.JaxTestCase):
         with jax.default_matmul_precision("tensorfloat32"):
           f(x)
           self.assertEqual(num_traces, 2)
+          # Changing global config within local context does not change the config value.
           config.update("jax_default_matmul_precision", "float32")
           f(x)
-          self.assertGreaterEqual(num_traces, 2)
-        nt = num_traces
+          self.assertEqual(num_traces, 2)
+        # After the local context exits, the global config change takes effect.
         f(x)
-        self.assertEqual(num_traces, nt + 1)
+        self.assertEqual(num_traces, 3)
         f(x)
-        self.assertEqual(num_traces, nt + 1)
+        self.assertEqual(num_traces, 3)
       finally:
         config.update("jax_default_matmul_precision", precision)
 
@@ -4315,14 +4316,15 @@ class APITest(jtu.JaxTestCase):
         with jax.numpy_rank_promotion("warn"):
           f(x)
           self.assertEqual(num_traces, 2)
+          # Changing global config within local context does not change the config value.
           config.update("jax_numpy_rank_promotion", "raise")
           f(x)
-          self.assertGreaterEqual(num_traces, 2)
-        nt = num_traces
+          self.assertEqual(num_traces, 2)
+        # After the local context exits, the global config change takes effect.
         f(x)
-        self.assertEqual(num_traces, nt + 1)
+        self.assertEqual(num_traces, 3)
         f(x)
-        self.assertEqual(num_traces, nt + 1)
+        self.assertEqual(num_traces, 3)
       finally:
         config.update("jax_numpy_rank_promotion", allow_promotion)
 
@@ -9452,11 +9454,8 @@ class CustomVJPTest(jtu.JaxTestCase):
 
     foo.defvjp(foo_fwd, foo_bwd)
 
-    try:
-      jax.config.update('jax_custom_vjp_disable_shape_check', True)
+    with config.custom_vjp_disable_shape_check(True):
       jax.grad(lambda x, y: foo(x, y).sum(), 1)(jnp.ones(3), jnp.ones(4))
-    finally:
-      jax.config.update('jax_custom_vjp_disable_shape_check', False)
 
   def test_bwd_rule_can_produce_list_or_tuple(self):
     @jax.custom_vjp

@@ -1010,6 +1010,7 @@ def promote_like_jnp(fun, inexact=False):
     return fun(*args, **kw)
   return wrapper
 
+
 @contextmanager
 def global_config_context(**kwds):
   original_config = {}
