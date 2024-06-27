@@ -90,6 +90,14 @@ class JitTest(jtu.BufferDonationTestCase):
   Python tests that extend the C++ tests (and not the other way around).
   """
 
+  def test_jit_decorator_factory(self):
+    @jit(static_argnames=['flag'])
+    def func(x, flag):
+      return x if flag else -x
+
+    self.assertEqual(func(1, True), 1)
+    self.assertEqual(func(1, False), -1)
+
   def test_jit_repr(self):
     def my_function():
       return

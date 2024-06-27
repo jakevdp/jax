@@ -138,9 +138,42 @@ config.debug_infs._add_hooks(_update_debug_special_global,
 
 float0 = dtypes.float0
 
+class Unspecified:
+  def __repr__(self):
+    return "<unspecified>"
+
+@overload
+def jit(fun: Callable,
+        in_shardings=...,
+        out_shardings=...,
+        static_argnums: int | Sequence[int] | None = ...,
+        static_argnames: str | Iterable[str] | None = ...,
+        donate_argnums: int | Sequence[int] | None = ...,
+        donate_argnames: str | Iterable[str] | None = ...,
+        keep_unused: bool = ...,
+        device: xc.Device | None = ...,
+        backend: str | None = ...,
+        inline: bool = ...,
+        abstracted_axes: Any | None = ...,
+) -> pjit.JitWrapped: ...
+
+@overload
+def jit(fun: Unspecified=Unspecified(),
+        in_shardings=...,
+        out_shardings=...,
+        static_argnums: int | Sequence[int] | None = ...,
+        static_argnames: str | Iterable[str] | None = ...,
+        donate_argnums: int | Sequence[int] | None = ...,
+        donate_argnames: str | Iterable[str] | None = ...,
+        keep_unused: bool = ...,
+        device: xc.Device | None = ...,
+        backend: str | None = ...,
+        inline: bool = ...,
+        abstracted_axes: Any | None = ...,
+) -> Callable[[Callable], pjit.JitWrapped]: ...
 
 def jit(
-  fun: Callable,
+  fun: Callable | Unspecified = Unspecified(),
   in_shardings=sharding_impls.UNSPECIFIED,
   out_shardings=sharding_impls.UNSPECIFIED,
   static_argnums: int | Sequence[int] | None = None,
@@ -152,7 +185,7 @@ def jit(
   backend: str | None = None,
   inline: bool = False,
   abstracted_axes: Any | None = None,
-) -> pjit.JitWrapped:
+) -> pjit.JitWrapped | Callable[[Callable], pjit.JitWrapped]:
   """Sets up ``fun`` for just-in-time compilation with XLA.
 
   Args:
@@ -278,10 +311,15 @@ def jit(
     >>> g(jnp.arange(4), 3)
     Array([   0,    1,  256, 6561], dtype=int32)
   """
-  return pjit.make_jit(
-        fun, in_shardings, out_shardings, donate_argnums, donate_argnames,
-        static_argnums, static_argnames, device, backend, abstracted_axes,
-        keep_unused, inline, use_resource_env=False)
+  kwargs = dict(
+    in_shardings=in_shardings, out_shardings=out_shardings,
+    donate_argnums=donate_argnums, donate_argnames=donate_argnames,
+    static_argnums=static_argnums, static_argnames=static_argnames,
+    device=device, backend=backend, abstracted_axes=abstracted_axes,
+    keep_unused=keep_unused, inline=inline)
+  if isinstance(fun, Unspecified):
+    return lambda fun: jit(fun, **kwargs)
+  return pjit.make_jit(fun, **kwargs, use_resource_env=False)
 
 
 @contextmanager
