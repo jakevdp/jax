@@ -53,8 +53,35 @@ designed for high-performance numerical computing and large-scale machine learni
 If you're looking to train neural networks, use Flax_ and start with its tutorials.
 For an end-to-end transformer library built on JAX, see MaxText_.
 
+Installation
+------------
+
+.. tab-set::
+
+    .. tab-item:: CPU (Linux/OSX/Windows)
+
+      .. code::
+
+         pip install -U jax
+
+    .. tab-item:: GPU (Linux)
+
+      .. code::
+
+         pip install -U "jax[cuda12]"
+
+    .. tab-item:: TPU (Linux)
+
+      .. code::
+
+         pip install -U "jax[tpu]" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+
+
+For more installation options, refer to :ref:`installation`.
+
 Ecosystem
 ---------
+
 JAX itself is narrowly-scoped and focuses on efficient array operations & program
 transformations. Built around JAX is an evolving ecosystem of machine learning and
 numerical computing tools; the following is just a small sample of what is out there:
