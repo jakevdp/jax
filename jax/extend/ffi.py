@@ -12,42 +12,35 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from jax._src import ffi as _ffi
-
 _deprecations = {
-    # Added 2024-12-20
+    # Finalized 2025-03-31
     "ffi_call": (
-        "jax.extend.ffi.ffi_call is deprecated, use jax.ffi.ffi_call instead.",
-        _ffi.ffi_call,
+        "jax.extend.ffi.ffi_call was removed in JAX v0.6.0, use jax.ffi.ffi_call instead.",
+        None,
     ),
     "ffi_lowering": (
-        "jax.extend.ffi.ffi_lowering is deprecated, use jax.ffi.ffi_lowering instead.",
-        _ffi.ffi_lowering,
+        "jax.extend.ffi.ffi_lowering was removed in JAX v0.6.0, use jax.ffi.ffi_lowering instead.",
+        None,
     ),
     "include_dir": (
-        "jax.extend.ffi.include_dir is deprecated, use jax.ffi.include_dir instead.",
-        _ffi.include_dir,
+        "jax.extend.ffi.include_dir was removed in JAX v0.6.0, use jax.ffi.include_dir instead.",
+        None,
     ),
     "pycapsule": (
-        "jax.extend.ffi.pycapsule is deprecated, use jax.ffi.pycapsule instead.",
-        _ffi.pycapsule,
+        "jax.extend.ffi.pycapsule was removed in JAX v0.6.0, use jax.ffi.pycapsule instead.",
+        None,
     ),
     "register_ffi_target": (
-        "jax.extend.ffi.register_ffi_target is deprecated, use jax.ffi.register_ffi_target instead.",
-        _ffi.register_ffi_target,
+        "jax.extend.ffi.register_ffi_target was removed in JAX v0.6.0, use jax.ffi.register_ffi_target instead.",
+        None,
     ),
 }
 
 import typing
 if typing.TYPE_CHECKING:
-  ffi_call = _ffi.ffi_call
-  ffi_lowering = _ffi.ffi_lowering
-  include_dir = _ffi.include_dir
-  pycapsule = _ffi.pycapsule
-  register_ffi_target = _ffi.register_ffi_target
+  pass
 else:
   from jax._src.deprecations import deprecation_getattr as _deprecation_getattr
   __getattr__ = _deprecation_getattr(__name__, _deprecations)
   del _deprecation_getattr
 del typing
-del _ffi
