@@ -31,7 +31,6 @@ from jax._src import xla_bridge as xb
 from jax._src.util import safe_zip, cache, tuple_delete
 from jax._src.lib import xla_client as xc
 
-zip, unsafe_zip = safe_zip, zip
 
 MeshAxisName = Any
 ResourceAxisName = Hashable
@@ -497,7 +496,7 @@ class AbstractMesh(_BaseMesh):
 
   def update_axis_types(self, name_to_type: dict[MeshAxisName, AxisType]):
     new_axis_types = tuple(name_to_type[n] if n in name_to_type else a
-                           for n, a in zip(self.axis_names, self._axis_types))
+                           for n, a in safe_zip(self.axis_names, self._axis_types))
     return AbstractMesh(self.axis_sizes, self.axis_names,
                         axis_types=new_axis_types)
 

@@ -27,7 +27,6 @@ from jax._src import config
 from jax._src import core
 from jax._src import dispatch
 from jax._src import test_util as jtu
-from jax._src import util
 from jax.experimental import io_callback
 from jax.experimental import pjit
 from jax._src.shard_map import shard_map
@@ -37,8 +36,6 @@ import numpy as np
 
 config.parse_flags_with_absl()
 jtu.request_cpu_devices(2)
-
-map, unsafe_map = util.safe_map, map
 
 # Some test methods take a kwarg
 # callback=[io_callback(ordered=True) | io_callback(ordered=False) | pure_callback]

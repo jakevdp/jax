@@ -46,9 +46,6 @@ from jax._src.util import (canonicalize_axis, moveaxis, safe_map, safe_zip,
 import jax.numpy as jnp
 import numpy as np
 
-unsafe_map, map = map, safe_map  # type: ignore
-unsafe_zip, zip = zip, safe_zip  # type: ignore
-
 
 ### parallel traceables
 
@@ -225,7 +222,7 @@ def pmax(x, axis_name, *, axis_index_groups=None):
   _validate_reduce_axis_index_groups(axis_index_groups)
   leaves, treedef = tree_util.tree_flatten(x)
   axis_index_groups = _canonicalize_axis_index_groups(axis_index_groups)
-  leaves = map(partial(insert_collective_pvary, axis_name), leaves)
+  leaves = safe_map(partial(insert_collective_pvary, axis_name), leaves)
   out_flat = pmax_p.bind(*leaves, axes=axis_name,
                          axis_index_groups=axis_index_groups)
   return tree_util.tree_unflatten(treedef, out_flat)
@@ -256,7 +253,7 @@ def pmin(x, axis_name, *, axis_index_groups=None):
   _validate_reduce_axis_index_groups(axis_index_groups)
   leaves, treedef = tree_util.tree_flatten(x)
   axis_index_groups = _canonicalize_axis_index_groups(axis_index_groups)
-  leaves = map(partial(insert_collective_pvary, axis_name), leaves)
+  leaves = safe_map(partial(insert_collective_pvary, axis_name), leaves)
   out_flat = pmin_p.bind(*leaves, axes=axis_name,
                          axis_index_groups=axis_index_groups)
   return tree_util.tree_unflatten(treedef, out_flat)
@@ -291,7 +288,7 @@ def _validate_reduce_axis_index_groups(axis_index_groups):
 def _canonicalize_axis_index_groups(axis_index_groups):
   if axis_index_groups is None:
     return
-  return tuple(map(tuple, axis_index_groups))
+  return tuple(safe_map(tuple, axis_index_groups))
 
 
 def pbroadcast(x, axis_name, source):
@@ -352,7 +349,7 @@ def ppermute(x, axis_name, perm):
     axis_name = (axis_name,)
   def bind(leaf):
     leaf = insert_collective_pvary(axis_name, leaf)
-    return ppermute_p.bind(leaf, axis_name=axis_name, perm=tuple(map(tuple, perm)))
+    return ppermute_p.bind(leaf, axis_name=axis_name, perm=tuple(safe_map(tuple, perm)))
   return tree_util.tree_map(bind, x)
 
 def pshuffle(x, axis_name, perm):
@@ -376,7 +373,7 @@ def pshuffle(x, axis_name, perm):
   """
   if set(perm) != set(range(len(perm))):
     raise ValueError(f"`perm` does not represent a permutation: {perm}")
-  return ppermute(x, axis_name, list(zip(perm, range(len(perm)))))
+  return ppermute(x, axis_name, list(safe_zip(perm, range(len(perm)))))
 
 
 def pswapaxes(x, axis_name, axis, *, axis_index_groups=None):
@@ -765,22 +762,22 @@ def _reduction_with_positional_batcher(
     raise NotImplementedError("axis_index_groups not supported in vmap collectives. "
                               "Please open a feature request!")
   vals_in = [val if d is batching.not_mapped or d == 0 else _moveaxis(d, 0, val)
-             for val, d in zip(vals_in, dims_in)]
+             for val, d in safe_zip(vals_in, dims_in)]
   mapped_vals_in, unmapped_vals_in = partitioned_vals_in = [], []
   mapped_idxs, unmapped_idxs = partitioned_idxs = [], []
-  for i, (val, d) in enumerate(zip(vals_in, dims_in)):
+  for i, (val, d) in enumerate(safe_zip(vals_in, dims_in)):
     partitioned_vals_in[d is batching.not_mapped].append(val)
     partitioned_idxs[d is batching.not_mapped].append(i)
   vals_out = [None] * len(vals_in)
   if unmapped_vals_in:
     unmapped_axes, unmapped_vals_in = transform_unmapped(0, unmapped_vals_in)
     unmapped_vals_out = prim.bind(*unmapped_vals_in, axes=unmapped_axes, axis_index_groups=None)
-    for i, val in zip(unmapped_idxs, unmapped_vals_out):
+    for i, val in safe_zip(unmapped_idxs, unmapped_vals_out):
       vals_out[i] = val
   if mapped_vals_in:
     mapped_axes, mapped_vals_in = transform_mapped(0, mapped_vals_in)
     mapped_vals_out = prim.bind(*mapped_vals_in, axes=mapped_axes, axis_index_groups=None)
-    for i, val in zip(mapped_idxs, mapped_vals_out):
+    for i, val in safe_zip(mapped_idxs, mapped_vals_out):
       vals_out[i] = val
   assert all(v is not None for v in vals_out)
   return vals_out
@@ -934,7 +931,7 @@ def _allreduce_lowering(prim, pos_fn, ctx, *args, axes, axis_index_groups):
       reducer_ctx = ctx.replace(primitive=None, avals_in=[aval], avals_out=[aval_out])
       out, = reducer(reducer_ctx, arg, axes=tuple(positional_axes))
       return out
-    args = map(_positional_reduce, ctx.avals_in, args)
+    args = safe_map(_positional_reduce, ctx.avals_in, args)
   if not named_axes:
     return args
 
@@ -972,7 +969,7 @@ def _allreduce_lowering(prim, pos_fn, ctx, *args, axes, axis_index_groups):
       hlo.return_(mlir.flatten_ir_values(out_nodes))
     return op.result
 
-  return [all_reduce(aval, x) for aval, x in zip(ctx.avals_in, args)]
+  return [all_reduce(aval, x) for aval, x in safe_zip(ctx.avals_in, args)]
 
 
 def _psum_transpose_rule(cts, *args, axes, axis_index_groups):
@@ -985,7 +982,7 @@ def _psum_transpose_rule(cts, *args, axes, axis_index_groups):
       assert ad.is_undefined_primal(arg)
       if type(ct) is ad.Zero: return ad.Zero(arg.aval)
       return lax._reduce_sum_transpose_rule(ct, arg, axes=pos_axes)[0]
-    cts = map(broadcast_positional, cts, args)
+    cts = safe_map(broadcast_positional, cts, args)
 
   # We treat psum as psum + pbroadcast, which is why the transpose reduces
   # over the named axes again (unlike for positional axes).
@@ -1060,7 +1057,7 @@ def _ppermute_lowering(ctx, x, *, axis_name, perm):
 
 def _ppermute_transpose_rule(t, x, perm, axis_name):
   srcs, dsts = unzip2(perm)
-  inverse_perm = list(zip(dsts, srcs))
+  inverse_perm = list(safe_zip(dsts, srcs))
   return [ppermute(t, axis_name=axis_name, perm=inverse_perm)]
 
 def _ppermute_batcher(axis_data, vals_in, dims_in, axis_name, perm):

@@ -55,8 +55,6 @@ from jax._src.lax.control_flow.common import (
     _avals_short, _typecheck_param, _aval_mismatch_extra,
     _initial_style_jaxprs_with_common_consts, _make_closed_jaxpr, _prune_zeros)
 
-map, unsafe_map = safe_map, map
-
 
 # For backward compatibility with a previous switch/cond calling convention,
 # we allow a single (pytree) `operand` argument to be passed by keyword. We use
@@ -336,7 +334,7 @@ def _check_branch_outputs(
         f'Revise {name1} and/or {name2} so that they have the same pytree '
         'structure.')
 
-  if not all(map(core.typematch, out_avals1, out_avals2)):
+  if not all(safe_map(core.typematch, out_avals1, out_avals2)):
     diffs = [f'the output of {name1}{component(p)} has type {a1.str_short()}'
              f' but the corresponding output of {name2} has type '
              f'{a2.str_short()}{_aval_mismatch_extra(a1, a2)}'
@@ -582,7 +580,7 @@ def _cond_partial_eval(trace, *tracers, branches):
       branches_known, all_res_avals, res_avals_per_branch, num_known_outs)
   branches_unknown = _join_cond_pe_staged_jaxpr_inputs(
       branches_unknown, all_res_avals, res_avals_per_branch)
-  assert all(all(map(core.typematch, j.out_avals, branches_known[0].out_avals))
+  assert all(all(safe_map(core.typematch, j.out_avals, branches_known[0].out_avals))
              for j in branches_known[1:])
 
   in_consts = [t.pval.get_known() for t in tracers if t.pval.is_known()]
@@ -592,7 +590,7 @@ def _cond_partial_eval(trace, *tracers, branches):
   index_tracer = trace.instantiate_const(tracers[0])
   ops_tracers = [trace.instantiate_const(t)
                  for uk, t in zip(in_unknowns[1:], tracers[1:]) if uk]
-  res_tracers = map(trace.new_instantiated_const, res)
+  res_tracers = safe_map(trace.new_instantiated_const, res)
   out_tracers = [pe.JaxprTracer(trace, pe.PartialVal.unknown(aval), None)
                  for aval in branches_unknown[0].out_avals]
   params = dict(branches=branches_unknown)
@@ -628,7 +626,7 @@ def _cond_partial_eval_custom(saveable, unks_in, inst_in, eqn):
     _, _, unks_out_, _, _ = pe.partial_eval_jaxpr_custom(
         jaxpr.jaxpr, in_unknowns=ops_uk, in_inst=True,
         ensure_out_unknowns=False, ensure_out_inst=True, saveable=saveable)
-    unks_out = map(operator.or_, unks_out, unks_out_)
+    unks_out = safe_map(operator.or_, unks_out, unks_out_)
 
   # Next, use the computed output unknowns to build a known jaxpr and a staged
   # jaxpr for each branch.
@@ -654,12 +652,12 @@ def _cond_partial_eval_custom(saveable, unks_in, inst_in, eqn):
       branches_known_, all_res_avals, res_avals_per_branch, num_known_outs)
   branches_staged = _join_cond_pe_staged_jaxpr_inputs(
       branches_staged_, all_res_avals, res_avals_per_branch)
-  assert all(all(map(core.typematch, j.out_avals, branches_known[0].out_avals))
+  assert all(all(safe_map(core.typematch, j.out_avals, branches_known[0].out_avals))
              for j in branches_known[1:])
 
   # Create residual variables.
   newvar = core.gensym()
-  res_binders = map(newvar, all_res_avals)
+  res_binders = safe_map(newvar, all_res_avals)
 
   # Build the known eqn.
   ins_known, _ = partition_list(unks_in, eqn.invars)  # includes index invar
@@ -710,7 +708,7 @@ def _merge_branch_residuals(branch_res_avals):
   def enumerate_equal(xs):
     counts = {v: itertools.count() for v in set(xs)}
     return [(x, next(counts[x])) for x in xs]
-  branch_res_tagged_avals = map(enumerate_equal, branch_res_avals)
+  branch_res_tagged_avals = safe_map(enumerate_equal, branch_res_avals)
   all_tagged_avals = _ordered_unique(util.concatenate(branch_res_tagged_avals))
   indices = {v: i for i, v in enumerate(all_tagged_avals)}
   branch_indices = [
@@ -729,14 +727,14 @@ def _join_cond_outputs(jaxprs: Sequence[core.ClosedJaxpr],
     def f_aug(*args):
       outs_and_residuals = core.jaxpr_as_fun(jaxpr)(*args)
       outs, residuals = split_list(outs_and_residuals, [num_non_res_outputs])
-      aug_residuals = map(ad_util.zeros_like_aval, all_res_avals)
+      aug_residuals = safe_map(ad_util.zeros_like_aval, all_res_avals)
       aug_residuals = util.subvals(aug_residuals, zip(res_indices, residuals))
       return outs + list(aug_residuals)
 
     wrapped_f_aug = lu.wrap_init(f_aug, debug_info=jaxpr.jaxpr.debug_info)
     return _make_closed_jaxpr(wrapped_f_aug, jaxpr.in_avals)
 
-  return tuple(map(augment_jaxpr, jaxprs, res_aval_indices_per_jaxpr))
+  return tuple(safe_map(augment_jaxpr, jaxprs, res_aval_indices_per_jaxpr))
 
 # This function augments branch inputs to agree with the merged residual format:
 # each branch is made to accept all residuals, even though it will ignore those
@@ -745,7 +743,7 @@ def _join_cond_pe_staged_jaxpr_inputs(jaxprs: Sequence[core.ClosedJaxpr],
                                       all_res_avals,
                                       res_aval_indices_per_jaxpr):
   newvar = core.gensym(suffix='_')
-  all_res_vars = map(newvar, all_res_avals)
+  all_res_vars = safe_map(newvar, all_res_avals)
 
   def augment_jaxpr(jaxpr: core.ClosedJaxpr, res_indices) -> core.ClosedJaxpr:
     num_res = len(res_indices)
@@ -760,7 +758,7 @@ def _join_cond_pe_staged_jaxpr_inputs(jaxprs: Sequence[core.ClosedJaxpr],
                            jaxpr.jaxpr.debug_info)
     return core.ClosedJaxpr(jaxpr_aug, jaxpr.consts)
 
-  return tuple(map(augment_jaxpr, jaxprs, res_aval_indices_per_jaxpr))
+  return tuple(safe_map(augment_jaxpr, jaxprs, res_aval_indices_per_jaxpr))
 
 def _ordered_unique(xs):
   d = collections.OrderedDict((x, None) for x in xs)
@@ -779,7 +777,7 @@ def _cond_dce_rule(used_outputs: list[bool], eqn: core.JaxprEqn,
   used_inputs: list[bool] = [False] * (len(eqn.invars) - 1)  # -1 for pred
   for jaxpr in branches:
     _, used_inputs_ = pe.dce_jaxpr(jaxpr, used_outputs, instantiate=False)
-    used_inputs = map(operator.or_, used_inputs, used_inputs_)
+    used_inputs = safe_map(operator.or_, used_inputs, used_inputs_)
 
   # Next, compute DCEd branches, instantiating according to used_inputs.
   dce_branches_ = [pe.dce_jaxpr(jaxpr, used_outputs, instantiate=used_inputs)[0]
@@ -812,7 +810,7 @@ def _transpose_cond_jaxpr(jaxpr: core.ClosedJaxpr,
     cts_in = ad.backward_pass(
         jaxpr.jaxpr, False, jaxpr.consts, primals, cts_out)
     _, cts_in = split_list(cts_in, [num_res])
-    return map(ad.instantiate_zeros, cts_in)
+    return safe_map(ad.instantiate_zeros, cts_in)
 
   return _make_closed_jaxpr(lu.wrap_init(transposed,
                                          debug_info=jaxpr.jaxpr.debug_info),
@@ -836,10 +834,10 @@ def _cond_transpose(cts, *args, branches):
              for out_aval, lin_in_aval in zip(jaxpr.out_avals, lin_in_avals))
 
   res = ops[:num_res]
-  cts = map(ad.instantiate_zeros, cts)
+  cts = safe_map(ad.instantiate_zeros, cts)
 
   out = cond_p.bind(index, *res, *cts, branches=branches_trans)
-  assert all(map(core.typecheck, lin_in_avals, out))
+  assert all(safe_map(core.typecheck, lin_in_avals, out))
 
   out_iter = iter(out)
   out = [next(out_iter) if l else None for l in linear]
@@ -876,11 +874,11 @@ def _cond_typecheck(bind_time, *in_atoms, branches):
       raise core.JaxprTypeError(
         f'cond branch 0 outputs {len(jaxpr0.out_avals)} values, '
         f'branch {i+1} outputs {len(jaxpr.out_avals)}')
-    if not all(map(core.typematch, jaxpr0.in_avals, jaxpr.in_avals)):
+    if not all(safe_map(core.typematch, jaxpr0.in_avals, jaxpr.in_avals)):
       raise core.JaxprTypeError(
         f'cond branches 0 and {i+1} have mismatching input types: '
         f'{jaxpr0_in_avals_str} vs {_avals_short(jaxpr.in_avals)}')
-    if not all(map(core.typematch, jaxpr0.out_avals, jaxpr.out_avals)):
+    if not all(safe_map(core.typematch, jaxpr0.out_avals, jaxpr.out_avals)):
       raise core.JaxprTypeError(
         f'cond branches 0 and {i+1} have mismatching output types: '
         f'{jaxpr0_out_avals_str} vs {_avals_short(jaxpr.out_avals)}')
@@ -894,7 +892,7 @@ def _cond_typecheck(bind_time, *in_atoms, branches):
   if index_aval.dtype != np.int32:
     raise core.JaxprTypeError(
       f'cond called with index of type {index_aval.dtype} instead of int32')
-  if not all(map(core.typecompat, jaxpr0.in_avals, op_avals)):
+  if not all(safe_map(core.typecompat, jaxpr0.in_avals, op_avals)):
     raise core.JaxprTypeError(
       f'cond branches take input types {jaxpr0_in_avals_str}, '
       f'called with operands of type {_avals_short(op_avals)}')

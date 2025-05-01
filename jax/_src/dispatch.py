@@ -52,6 +52,7 @@ from jax._src.sharding import Sharding
 from jax._src.sharding_impls import (
     NamedSharding, SingleDeviceSharding, TransferToMemoryKind, GSPMDSharding,
     is_single_device_sharding)
+from jax._src.util import safe_map, safe_zip
 import numpy as np
 
 
@@ -67,9 +68,6 @@ Backend = xe.Client
 Device = xc.Device
 
 CompileOptions = xc.CompileOptions
-
-map, unsafe_map = util.safe_map, map
-zip, unsafe_zip = util.safe_zip, zip
 
 logger = logging.getLogger(__name__)
 
@@ -303,7 +301,7 @@ def jaxpr_replicas(jaxpr: core.Jaxpr) -> int:
   For a eqn, multiply the `axis_size` with the `jaxpr_replicas` of the
   subjaxprs. For a list of eqns, take the maximum number of replicas.
   """
-  return max(unsafe_map(_eqn_replicas, jaxpr.eqns), default=1)
+  return max(map(_eqn_replicas, jaxpr.eqns), default=1)
 
 # TODO(mattjj): this function assumes that only pmap has a parameter named
 # axis_size, and that it corresponds to cross-replica mapping
@@ -553,7 +551,7 @@ def _batched_device_put_impl(
     copy_semantics: Sequence[CopySemantics]):
   ys = []
   dsa_indices, dsa_xs, dsa_shardings, dsa_copy_semantics = [], [], [], []
-  for i, (x, device, src, cp) in enumerate(zip(xs, devices, srcs, copy_semantics)):
+  for i, (x, device, src, cp) in enumerate(safe_zip(xs, devices, srcs, copy_semantics)):
     y = _device_put_impl(x, device=device, src=src, copy=cp)
     if isinstance(y, _DeferredShardArg):
       dsa_indices.append(i)
@@ -569,7 +567,7 @@ def _batched_device_put_impl(
     # the layout here.
     shard_arg_results = pxla.shard_args(dsa_shardings, [None] * len(dsa_xs),
                                         dsa_copy_semantics, dsa_xs)
-    for i, shard_arg_result in zip(dsa_indices, shard_arg_results):
+    for i, shard_arg_result in safe_zip(dsa_indices, shard_arg_results):
       assert isinstance(ys[i], _DeferredShardArg)
       ys[i] = ys[i].result_handler(shard_arg_result)
 
@@ -587,11 +585,11 @@ device_put_p.def_abstract_eval(_device_put_abstract_eval)
 def _device_put_transpose(cts, *_, devices, srcs, copy_semantics):
   results = [None] * len(cts)
   dp_args = []
-  for i, (ct, device, src, cp) in enumerate(zip(cts, devices, srcs, copy_semantics)):
+  for i, (ct, device, src, cp) in enumerate(safe_zip(cts, devices, srcs, copy_semantics)):
     if type(ct) is not ad.Zero:
       dp_args.append((i, ct, device, src, cp))
   if dp_args:
-    indices, args, devices, srcs, copy_semantics = list(zip(*dp_args))
+    indices, args, devices, srcs, copy_semantics = list(safe_zip(*dp_args))
     new_copy_semantics = []
     for cp in copy_semantics:
       if cp == CopySemantics.DONATE:
@@ -605,7 +603,7 @@ def _device_put_transpose(cts, *_, devices, srcs, copy_semantics):
         new_copy_semantics.append(CopySemantics.COPY)
     ys = device_put_p.bind(*args, devices=srcs, srcs=devices,
                            copy_semantics=new_copy_semantics)
-    for i, y in zip(indices, ys):
+    for i, y in safe_zip(indices, ys):
       results[i] = y
   return results
 ad.primitive_jvps[device_put_p] = partial(ad.linear_jvp, device_put_p)
@@ -639,7 +637,7 @@ def _tpu_gpu_device_put_lowering(ctx, *xs, devices, srcs, copy_semantics):
       x = mlir.wrap_with_memory_kind(x, device.memory_kind, out_aval)
       return x
     return x
-  return list(map(lower, xs, devices, ctx.avals_in, ctx.avals_out))
+  return safe_map(lower, xs, devices, ctx.avals_in, ctx.avals_out)
 
 mlir.register_lowering(
   device_put_p, _tpu_gpu_device_put_lowering, platform='tpu')

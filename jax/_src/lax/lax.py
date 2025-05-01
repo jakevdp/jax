@@ -80,9 +80,6 @@ _reduce = functools.reduce
 
 T = TypeVar("T")
 
-map, unsafe_map = safe_map, map
-zip, unsafe_zip = safe_zip, zip
-
 export = util.set_module("jax.lax")
 
 def _matrix_transpose(x: Array) -> Array:
@@ -120,7 +117,7 @@ def _try_broadcast_shapes(*shapes: tuple[int, ...], name: str) -> tuple[int, ...
     raise TypeError(f'{name}: arrays must have the same number of dimensions,'
                     f' got {ranks}')
   result_shape = []
-  for ds in zip(*shapes):
+  for ds in safe_zip(*shapes):
     if all(core.same_referent(d, ds[0]) for d in ds[1:]):
       # if all axes are identical objects, the resulting size is the object
       result_shape.append(ds[0])
@@ -3407,12 +3404,12 @@ def _eye(dtype: DTypeLike, shape: Shape, offset: DimSize = 0) -> Array:
 
 def _delta(dtype: DTypeLike, shape: Shape, axes: Sequence[int]) -> Array:
   """This utility function exists for creating Kronecker delta arrays."""
-  axes = map(int, axes)
+  axes = safe_map(int, axes)
   dtype = dtypes.canonicalize_dtype(dtype)
   base_shape = tuple(np.take(shape, axes))
   iotas = [broadcasted_iota(np.uint32, base_shape, i)
            for i in range(len(base_shape))]
-  eyes = [eq(i1, i2) for i1, i2 in zip(iotas[:-1], iotas[1:])]
+  eyes = [eq(i1, i2) for i1, i2 in safe_zip(iotas[:-1], iotas[1:])]
   result = convert_element_type_p.bind(
       _reduce(operator.and_, eyes), new_dtype=dtype, weak_type=False,
       sharding=None)
@@ -3956,13 +3953,13 @@ def broadcasting_sharding_rule(name, *avals):
   specs = [a.sharding.spec for a in avals if a.shape]
 
   result_specs = [None] * len(shapes[0])
-  for i, (ss, ds) in enumerate(zip(zip(*specs), zip(*shapes))):
+  for i, (ss, ds) in enumerate(safe_zip(safe_zip(*specs), safe_zip(*shapes))):
     if all(s == ss[0] for s in ss[1:]):
       # if all dimension shardings are same, the resulting dimension sharding is
       # the same.
       result_specs[i] = ss[0]
     else:
-      non_trivial_s = [s for s, d in zip(ss, ds)
+      non_trivial_s = [s for s, d in safe_zip(ss, ds)
                        if not (core.definitely_equal(d, 1) and s is None)]
       if not non_trivial_s:
         result_specs[i] = None
@@ -4007,7 +4004,7 @@ def _unbroadcast(aval, x):
   if not aval.shape:
     return reduce_sum(x, list(range(len(x_shape))))
   else:
-    dims = [i for i, (a, b) in enumerate(zip(x_shape, aval.shape)) if not core.definitely_equal(a, b)]
+    dims = [i for i, (a, b) in enumerate(safe_zip(x_shape, aval.shape)) if not core.definitely_equal(a, b)]
     if config.enable_checks.value: assert all(aval.shape[i] == 1 for i in dims)
     return reshape(reduce_sum(x, dims), aval.shape)
 
@@ -4018,7 +4015,7 @@ def _maybe_broadcast(target_shape, x):
   elif not x_shape:
     return broadcast_in_dim(x, target_shape, ())
   else:
-    dims = [i for i, (a, b) in enumerate(zip(x_shape, target_shape))
+    dims = [i for i, (a, b) in enumerate(safe_zip(x_shape, target_shape))
             if core.definitely_equal(a, b)]
     squeeze_shape = [x_shape[i] for i in dims]
     return broadcast_in_dim(reshape(x, squeeze_shape), target_shape, dims)
@@ -4029,7 +4026,7 @@ def broadcast_hlo(
   """Broadcasts HLO values with broadcast-compatible shapes to the same shape.
   """
   out = []
-  for aval, arg in zip(avals, args):
+  for aval, arg in safe_zip(avals, args):
     if aval.shape != aval_out.shape:
       assert len(aval.shape) <= len(aval_out.shape), (aval, aval_out)
       dims = mlir.dense_int_array(
@@ -4047,7 +4044,7 @@ def broadcast_hlo(
 
 def multi_sharding_in_dim(ctx, ops, in_avals, out_aval):
   out = []
-  for op, in_aval in zip(ops, in_avals):
+  for op, in_aval in safe_zip(ops, in_avals):
     if in_aval.sharding == out_aval.sharding or in_aval.sharding is None:
       out.append(op)
     else:
@@ -5181,7 +5178,7 @@ def _dot_general_shape_computation(lhs_shape, rhs_shape, dimension_numbers):
 
 
 def _check_specs_match(lhs_spec, rhs_spec, msg):
-  for l, r in zip(lhs_spec, rhs_spec):
+  for l, r in safe_zip(lhs_spec, rhs_spec):
     if l is not None and r is not None and l != r:
       raise core.ShardingTypeError(msg)
 
@@ -5211,7 +5208,7 @@ def _dot_general_sharding_rule(lhs, rhs, *, dimension_numbers, precision,
         f"sharding, got {lhs_contracting_spec} and {rhs_contracting_spec}.")
   _check_specs_match(lhs_contracting_spec, rhs_contracting_spec, msg)
 
-  for l, r in zip(lhs_contracting_spec, rhs_contracting_spec):
+  for l, r in safe_zip(lhs_contracting_spec, rhs_contracting_spec):
     if l is not None and r is not None:
       raise core.ShardingTypeError(
           'Contracting dimensions are sharded and it is ambiguous how the'
@@ -5780,7 +5777,7 @@ def _is_ragged_contracting(
 
 
 def _ragged_dot_prefix_dims(mode, rank, ragged_dim, batch, contract):
-  batch, contract = map(list, (batch, contract))
+  batch, contract = safe_map(list, (batch, contract))
   noncontract = remaining(range(rank), contract, batch)
   match mode:
     case RaggedDotMode.RAGGED_NONCONTRACTING:
@@ -6423,7 +6420,7 @@ def _broadcast_in_dim_batch_rule(axis_data, batched_args, batch_dims, shape,
   # information is available.
   dyn_limits = []
   out_ragged_sizes = []
-  for sizes, bdim in zip(dyn_shape, dyn_shape_bdims):
+  for sizes, bdim in safe_zip(dyn_shape, dyn_shape_bdims):
     if bdim is None:
       # TODO(mattjj,axch) Is this what bdim == None means?
       assert isinstance(sizes, int)
@@ -6446,7 +6443,7 @@ def _broadcast_in_dim_batch_rule(axis_data, batched_args, batch_dims, shape,
                             out_sharding=sharding)
   out_ragged_axes = [idx+1 for idx, s in enumerate(shape) if s is None]
   out_bdim = batching.make_batch_axis(
-      result.ndim, 0, zip(out_ragged_axes, out_ragged_sizes))
+      result.ndim, 0, safe_zip(out_ragged_axes, out_ragged_sizes))
   return result, out_bdim
 
 def _broadcast_in_dim_fwd_rule(eqn):
@@ -6508,7 +6505,7 @@ def _broadcast_in_dim_partial_eval(
              sharding=sharding))
   assert all(t.pval.is_known() for t in dyn_shape)
   operand_tracer = trace.instantiate_const(operand)
-  dyn_shape_tracers = map(trace.instantiate_const, dyn_shape)
+  dyn_shape_tracers = safe_map(trace.instantiate_const, dyn_shape)
   dyn_shape_tracers_ = iter(dyn_shape_tracers)
   shape_ = [next(dyn_shape_tracers_) if d is None else d for d in shape]
   out_aval = core.DShapedArray(tuple(shape_), operand.dtype, operand.weak_type)
@@ -6591,7 +6588,7 @@ _clamp_dtype_rule = partial(naryop_dtype_rule, _input_dtype, [_any, _any, _any],
 def _clamp_batch_rule(batched_args, batch_dims, **params):
   min, x, max = batched_args
   min_bdim, x_bdim, max_bdim = batch_dims
-  size = next(x.shape[i] for x, i in zip(batched_args, batch_dims)
+  size = next(x.shape[i] for x, i in safe_zip(batched_args, batch_dims)
               if i is not None)
 
   # avoid transposes and some broadcasts in special cases
@@ -6694,15 +6691,15 @@ def _concatenate_transpose_rule(t, *operands, dimension):
                  axis=dimension)
 
 def _concatenate_batch_rule(batched_args, batch_dims, *, dimension):
-  size = next(op.shape[bdim] for op, bdim in zip(batched_args, batch_dims)
+  size = next(op.shape[bdim] for op, bdim in safe_zip(batched_args, batch_dims)
               if bdim is not None)
   spec = next(core.get_aval(op).sharding.spec[bdim]
-              for op, bdim in zip(batched_args, batch_dims) if bdim is not None)
+              for op, bdim in safe_zip(batched_args, batch_dims) if bdim is not None)
   operands = [batching.moveaxis(op, bdim, 0) if bdim is not None
               else broadcast(
                   op, (size,), out_sharding=core.get_aval(op).sharding.with_spec(
                       (spec, *core.get_aval(op).sharding.spec)))
-              for op, bdim in zip(batched_args, batch_dims)]
+              for op, bdim in safe_zip(batched_args, batch_dims)]
   return concatenate(operands, dimension + 1), 0
 
 def _concatenate_pad_rule(in_avals, out_avals, *operands, dimension):
@@ -6822,7 +6819,7 @@ def _pad_shape_rule(operand, padding_value, *, padding_config):
     raise ValueError("interior padding in padding_config must be nonnegative, "
                      f"got padding_config {padding_config}")
   result = tuple(l + h + core.dilate_dim(d, i + 1)
-                 for (l, h, i), d in zip(padding_config, op_shape))
+                 for (l, h, i), d in safe_zip(padding_config, op_shape))
   if not all(d >= 0 for d in result):
     msg = (f"Dimension size after padding is not at least 0, "
            f"got result shape {result}, for padding_config {padding_config}"
@@ -7058,7 +7055,7 @@ def _reshape_sharding_rule(operand, *, new_sizes, dimensions, sharding):
       f' operand spec: {operand.sharding.spec}')
 
 def _split_merge_singleton_dim_sharding_rule(operand, new_sizes):
-  filtered_spec = [sp for sh, sp in zip(operand.shape, operand.sharding.spec)
+  filtered_spec = [sp for sh, sp in safe_zip(operand.shape, operand.sharding.spec)
                    if sh != 1]
   fs = iter(filtered_spec)
   new_spec = []
@@ -7099,7 +7096,7 @@ def _merge_an_axis_sharding_rule(operand, operand_merge, new_sizes, dimensions):
   new_spec = []
   mesh = operand.sharding.mesh
   op_spec = iter(operand.sharding.spec)
-  for new_size, op_merge in zip(new_sizes, operand_merge):
+  for new_size, op_merge in safe_zip(new_sizes, operand_merge):
     if isinstance(op_merge, list):
       sp = [next(op_spec) for _ in op_merge]
       if all(s is None for s in sp):
@@ -7339,7 +7336,7 @@ def _select_transpose_rule(t, which, *cases):
 def _select_batch_rule(axis_data, batched_args, batch_dims, **unused_kwargs):
   which, *cases = batched_args
   which_bdim, *case_bdims = batch_dims
-  size = next(x.shape[i] for x, i in zip(batched_args, batch_dims)
+  size = next(x.shape[i] for x, i in safe_zip(batched_args, batch_dims)
               if i is not None)
 
   # avoid transposes and some broadcasts in special cases
@@ -7358,7 +7355,7 @@ def _select_batch_rule(axis_data, batched_args, batch_dims, **unused_kwargs):
     elif all(np.shape(cases[0]) == np.shape(c) for c in cases):
       bdim = case_bdims[0]
       other_cases = [batching.moveaxis(c, c_bdim, bdim)
-                     for c, c_bdim in zip(cases[1:], case_bdims[1:])]
+                     for c, c_bdim in safe_zip(cases[1:], case_bdims[1:])]
       return select_n(which, cases[0], *other_cases), bdim
 
   which = (batching.bdim_at_front(which, which_bdim, size,
@@ -7366,7 +7363,7 @@ def _select_batch_rule(axis_data, batched_args, batch_dims, **unused_kwargs):
            if np.shape(which) else which)
   if not all(() == np.shape(c) for c in cases):
     cases = [batching.bdim_at_front(c, bdim, size, axis_data.explicit_mesh_axis)
-             for c, bdim in zip(cases, case_bdims)]
+             for c, bdim in safe_zip(cases, case_bdims)]
   assert all(np.shape(cases[0]) == np.shape(c) for c in cases[1:])
   if 0 < np.ndim(which) < np.ndim(cases[0]):
     # vmapped function had a scalar which with nonscalar args
@@ -7502,10 +7499,10 @@ def _reduce_batch_rule(batched_args, batch_dims, *, computation, jaxpr,
   operand_bdims, init_value_bdims = split_list(batch_dims, [num_operands])
   if all(init_value_bdim is batching.not_mapped
          for init_value_bdim in init_value_bdims):
-    size = next(x.shape[ax] for x, ax in zip(batched_args, batch_dims)
+    size = next(x.shape[ax] for x, ax in safe_zip(batched_args, batch_dims)
                 if ax is not None)
     operands = [batching.bdim_at_front(arg, bdim, size)
-                for arg, bdim in zip(operands, operand_bdims)]
+                for arg, bdim in safe_zip(operands, operand_bdims)]
     new_dimensions = [d + 1 for d in dimensions]
     new_operand_bdims = [0] * num_operands
     return reduce_p.bind(*(operands + init_values),
@@ -7540,7 +7537,7 @@ def _reduce_jvp(reducer, init_values, primals, tangents, axes):
       if n2 != n1:
         paddings = [(0, 0, 0)] * len(xs[0].shape)
         paddings[axis] = (0, 1, 0)
-        xs2 = [pad(x2, i, paddings) for x2, i in zip(xs2, init_values)]
+        xs2 = [pad(x2, i, paddings) for x2, i in safe_zip(xs2, init_values)]
       xs = reducer(*(xs1 + xs2))
     if xs[0].shape[axis] == 0:
       return [full(input_shape[non_axes], i) for i in init_values]
@@ -7912,7 +7909,7 @@ def _canonicalize_float_for_sort(x):
 def _sort_lt_comparator(*operands, num_keys=1):
   x_keys, y_keys = _operands_to_keys(*operands, num_keys=num_keys)
   p = None
-  for xk, yk in zip(x_keys[::-1], y_keys[::-1]):
+  for xk, yk in safe_zip(x_keys[::-1], y_keys[::-1]):
     p = (bitwise_or(lt_to_p.bind(xk, yk), bitwise_and(eq_to_p.bind(xk, yk), p)) if p is not None
          else lt_to_p.bind(xk, yk))
   return p
@@ -7922,7 +7919,7 @@ def _sort_lt_comparator(*operands, num_keys=1):
 def _sort_le_comparator(*operands, num_keys=1):
   x_keys, y_keys = _operands_to_keys(*operands, num_keys=num_keys)
   p = None
-  for xk, yk in zip(x_keys[::-1], y_keys[::-1]):
+  for xk, yk in safe_zip(x_keys[::-1], y_keys[::-1]):
     p = (bitwise_or(lt_to_p.bind(xk, yk), bitwise_and(eq_to_p.bind(xk, yk), p)) if p is not None
          else le_to_p.bind(xk, yk))
   return p
@@ -7931,7 +7928,7 @@ def _operands_to_keys(*operands, num_keys=1):
   assert len(operands) >= 2 and len(operands) % 2 == 0, operands
   assert len(operands) // 2 >= num_keys, (operands, num_keys)
   x_keys, y_keys = [], []
-  for x, y in zip(operands[:2*num_keys:2], operands[1:2*num_keys:2]):
+  for x, y in safe_zip(operands[:2*num_keys:2], operands[1:2*num_keys:2]):
     assert x.dtype == y.dtype, (x.dtype, y.dtype)
     if dtypes.issubdtype(x.dtype, np.complexfloating):
       x_keys.extend([_canonicalize_float_for_sort(real(x)), _canonicalize_float_for_sort(imag(x))])
@@ -7971,9 +7968,9 @@ def _sort_jvp(primals, tangents, *, dimension, is_stable, num_keys):
 
 def _sort_batch_rule(batched_args, batch_dims, *, dimension, is_stable, num_keys):
   prototype_arg, new_bdim = next(
-    (a, b) for a, b in zip(batched_args, batch_dims) if b is not None)
+    (a, b) for a, b in safe_zip(batched_args, batch_dims) if b is not None)
   new_args = []
-  for arg, bdim in zip(batched_args, batch_dims):
+  for arg, bdim in safe_zip(batched_args, batch_dims):
     if bdim is None:
       dims = np.delete(np.arange(prototype_arg.ndim), new_bdim)
       new_args.append(broadcast_in_dim(arg, prototype_arg.shape, dims))
@@ -8004,12 +8001,12 @@ def _sort_lower(ctx, *operands, dimension, is_stable, num_keys):
                   for aval in ctx.avals_in]
   scalar_types = safe_map(mlir.aval_to_ir_type, scalar_avals)
   comparator = sort.comparator.blocks.append(
-      *util.flatten(zip(scalar_types, scalar_types)))
+      *util.flatten(safe_zip(scalar_types, scalar_types)))
   with ir.InsertionPoint(comparator):
     lower_comparator = mlir.lower_fun(partial(_sort_lt_comparator),
                                       multiple_results=False)
     sub_ctx = ctx.replace(primitive=None,
-                          avals_in=util.flatten(zip(scalar_avals, scalar_avals)),
+                          avals_in=util.flatten(safe_zip(scalar_avals, scalar_avals)),
                           avals_out=[core.ShapedArray((), np.bool_)])
 
     out = lower_comparator(sub_ctx, *comparator.arguments, num_keys=num_keys)
@@ -8596,7 +8593,7 @@ def _dilate_shape(shape, dilation):
     msg = "All dilations must be positive, got {}."
     raise TypeError(msg.format(dilation))
   dilation = (1,) * (len(shape) - len(dilation)) + tuple(dilation)
-  return tuple(map(core.dilate_dim, shape, dilation))
+  return tuple(safe_map(core.dilate_dim, shape, dilation))
 
 def _ceil_divide(x1, x2):
   return -np.floor_divide(np.negative(x1), x2)
@@ -8960,7 +8957,7 @@ def _optimization_barrier_abstract_eval(*args):
   return args
 
 def _optimization_barrier_lowering_rule(ctx, *args):
-  barrier_types = map(mlir.aval_to_ir_type, ctx.avals_in)
+  barrier_types = safe_map(mlir.aval_to_ir_type, ctx.avals_in)
   flat_args = mlir.flatten_ir_values(args)
   barrier_op = hlo.OptimizationBarrierOp(flat_args)
   return mlir.unflatten_ir_values_like_types(barrier_op.results, barrier_types)

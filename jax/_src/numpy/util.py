@@ -26,15 +26,12 @@ from jax._src import dtypes
 from jax._src.lax import lax
 from jax._src.lib import xla_client as xc
 from jax._src.sharding_impls import SingleDeviceSharding
-from jax._src.util import safe_zip, safe_map, set_module
+from jax._src.util import safe_zip, set_module
 from jax._src.typing import (
     Array, ArrayLike, DimSize, Shape, SupportsNdim, SupportsShape, SupportsSize)
 from jax.sharding import Sharding
 
 import numpy as np
-
-zip, unsafe_zip = safe_zip, zip
-map, unsafe_map = safe_map, map
 
 export = set_module('jax.numpy')
 
@@ -51,7 +48,7 @@ def promote_shapes(fun_name: str, *args: ArrayLike) -> list[Array]:
       # we instead broadcast out to the full shape as a temporary workaround.
       # TODO(mattjj): revise this workaround
       res_shape = lax.broadcast_shapes(*shapes)  # Can raise an error!
-      return [_broadcast_to(arg, res_shape) for arg, shp in zip(args, shapes)]
+      return [_broadcast_to(arg, res_shape) for arg, shp in safe_zip(args, shapes)]
     else:
       if all(len(shapes[0]) == len(s) for s in shapes[1:]):
         return [lax.asarray(arg) for arg in args]  # no need for rank promotion, so rely on lax promotion

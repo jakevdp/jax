@@ -99,9 +99,6 @@ F = TypeVar("F", bound=Callable)
 T = TypeVar("T")
 U = TypeVar("U")
 
-map, unsafe_map = safe_map, map
-zip, unsafe_zip = safe_zip, zip
-
 
 @api_boundary
 def _nan_check_posthook(fun, args, kwargs, output):
@@ -172,7 +169,7 @@ def _allow_deprecated_jit_signature(f: F) -> F:
         stacklevel=2
       )
       sig = inspect.signature(f)
-      kwds = dict(unsafe_zip((p.name for p in sig.parameters.values()), args))
+      kwds = dict(zip((p.name for p in sig.parameters.values()), args))
       return f(kwds.pop('fun'), **kwds, **kwargs)
     return f(*args, **kwargs)
   return cast(F, wrapped)
@@ -911,10 +908,10 @@ def _unravel_array_into_pytree(pytree, axis, example, arr):
   leaves, treedef = tree_flatten(pytree)
   axis = axis % arr.ndim
   shapes = [arr.shape[:axis] + np.shape(l) + arr.shape[axis+1:] for l in leaves]
-  parts = _split(arr, np.cumsum(map(np.size, leaves[:-1])), axis)
+  parts = _split(arr, np.cumsum(safe_map(np.size, leaves[:-1])), axis)
   reshaped_parts = [
       _possible_downcast(np.reshape(x, shape), leaf if example is None else example)
-      for x, shape, leaf in zip(parts, shapes, leaves)]
+      for x, shape, leaf in safe_zip(parts, shapes, leaves)]
   return tree_unflatten(treedef, reshaped_parts)
 
 def _split(x, indices, axis):
@@ -1136,7 +1133,7 @@ def _mapped_axis_spec(args_flat, in_axes_flat):
       return None
 
   temp_spec = None
-  for arg, i in zip(args_flat, in_axes_flat):
+  for arg, i in safe_zip(args_flat, in_axes_flat):
     if i is not None:
       spec = _get_spec(arg, i)
       if temp_spec is not None and temp_spec != spec:
@@ -1167,7 +1164,7 @@ def _mapped_axis_size(fn, tree, vals, dims, name):
           f"but is only {len(shape)} (its shape is {shape})") from e
 
   sizes = core.dedup_referents(_get_axis_size(name, np.shape(x), d)
-                               for x, d in zip(vals, dims) if d is not None)
+                               for x, d in safe_zip(vals, dims) if d is not None)
   if len(sizes) == 1:
     sz, = sizes
     return sz
@@ -1211,7 +1208,7 @@ def _mapped_axis_size(fn, tree, vals, dims, name):
   ]
   key_paths = [*args_paths, *kwargs_paths]
   all_sizes = [_get_axis_size(name, np.shape(x), d) if d is not None else None
-               for x, d in zip(vals, dims)]
+               for x, d in safe_zip(vals, dims)]
   size_counts = collections.Counter(s for s in all_sizes if s is not None)
   (sz, ct), *other_counts = counts = size_counts.most_common()
   def _all_sizes_index(sz):
@@ -1225,7 +1222,7 @@ def _mapped_axis_size(fn, tree, vals, dims, name):
     msg.append(f"  * one axis had size {sz}: axis {ax} of {ex};\n")
   else:
     msg.append(f"  * most axes ({ct} of them) had size {sz}, e.g. axis {ax} of {ex};\n")
-  for ex, ax, (sz, ct) in zip(examples, axs, other_counts):
+  for ex, ax, (sz, ct) in safe_zip(examples, axs, other_counts):
     if ct == 1:
       msg.append(f"  * one axis had size {sz}: axis {ax} of {ex};\n")
     else:
@@ -1765,7 +1762,7 @@ def _cpp_pmap(
 @api_boundary
 def _cpp_mapped_trace(pmap_f, *args, **kwargs):
   p = pmap_f._prepare_pmap(args, kwargs)
-  abstract_args = list(map(shaped_abstractify, p.flat_args))
+  abstract_args = safe_map(shaped_abstractify, p.flat_args)
   closed_jaxpr, xc_backend, replicas, shards, pci = pxla.get_pmap_jaxpr(
       p.flat_fun, pmap_f._backend, pmap_f._axis_name,
       axis_size=p.local_axis_size, global_axis_size=p.global_axis_size,
@@ -1857,7 +1854,7 @@ def _jvp(fun: lu.WrappedFun, primals, tangents, has_aux=False):
     raise TypeError("primal and tangent arguments to jax.jvp must have the same tree "
                     f"structure; primals have tree structure {tree_def} whereas tangents have "
                     f"tree structure {tree_def_2}.")
-  for p, t in zip(ps_flat, ts_flat):
+  for p, t in safe_zip(ps_flat, ts_flat):
     if core.primal_dtype_to_tangent_dtype(_dtype(p)) != _dtype(t):
       raise TypeError("primal and tangent arguments to jax.jvp do not match; "
                       "dtypes must be equal, or in case of int/bool primal dtype "
@@ -1975,7 +1972,7 @@ def linearize(fun: Callable, *primals, has_aux: bool = False
   else:
     out_tree = out_tree()
   out_primal_py = tree_unflatten(out_tree, out_primals)
-  primal_avals = list(map(core.get_aval, primals_flat))
+  primal_avals = safe_map(core.get_aval, primals_flat)
   # Ensure that lifted_jvp is a PyTree
   lifted_jvp = Partial(partial(_lift_linearized, jaxpr, primal_avals,
                                (in_tree, out_tree), out_pvals), consts)
@@ -1988,8 +1985,8 @@ def linearize(fun: Callable, *primals, has_aux: bool = False
 
 def _lift_linearized(jaxpr, primal_avals, io_tree, out_pvals, consts, *py_args):
   def fun(*tangents):
-    tangent_avals = list(map(core.get_aval, tangents))
-    for primal_aval, tangent_aval in zip(primal_avals, tangent_avals):
+    tangent_avals = safe_map(core.get_aval, tangents)
+    for primal_aval, tangent_aval in safe_zip(primal_avals, tangent_avals):
       expected_tangent_aval  = primal_aval.to_tangent_aval()
       if not core.typecompat(expected_tangent_aval, tangent_aval):
         extra_msg = ''
@@ -2051,7 +2048,7 @@ def _vjp_pullback_wrapper(name, out_primal_avals, io_tree, fun, *py_args_):
   if in_tree != in_tree_expected:
     raise ValueError(f"unexpected tree structure of argument to vjp function: "
                      f"got {in_tree}, but expected to match {in_tree_expected}")
-  for arg, aval in zip(args, out_primal_avals):
+  for arg, aval in safe_zip(args, out_primal_avals):
     ct_aval = shaped_abstractify(arg)
     ct_aval_expected = aval.to_tangent_aval()
     if (not core.typecompat(ct_aval, ct_aval_expected) and
@@ -2145,7 +2142,7 @@ def _vjp(fun: lu.WrappedFun, *primals, has_aux=False):
     flat_fun, out_aux_trees = flatten_fun_nokwargs2(fun, in_tree)
     out_primals, vjp, aux = ad.vjp(flat_fun, primals_flat, has_aux=True)
     out_tree, aux_tree = out_aux_trees()
-  out_primal_avals = map(shaped_abstractify, out_primals)
+  out_primal_avals = safe_map(shaped_abstractify, out_primals)
   out_primal_py = tree_unflatten(out_tree, out_primals)
   vjp_py = Partial(partial(_vjp_pullback_wrapper, fun.__name__,
                            out_primal_avals, (out_tree, in_tree)), vjp)
@@ -2167,7 +2164,7 @@ def saved_input_vjp(f: Callable, which: Sequence[bool], *primals,
   primals_flat, in_tree = tree_flatten(primals)
   fun, out_tree = flatten_fun_nokwargs(fun, in_tree)
   out_primals_flat, _, jaxpr, residuals = ad.linearize(fun, *primals_flat)
-  primals_filt, filt_tree = tree_flatten(tuple(p for w, p in zip(which, primals) if w))
+  primals_filt, filt_tree = tree_flatten(tuple(p for w, p in safe_zip(which, primals) if w))
   id_map = {id(x): i for i, x in enumerate(primals_filt)}
   opaque_residuals = []
   res_spec = [RSpec(id_map[id(r)], True) if id(r) in id_map else
@@ -2177,7 +2174,7 @@ def saved_input_vjp(f: Callable, which: Sequence[bool], *primals,
                           out_tree(), jaxpr), opaque_residuals)
 
   if not allow_unused and not set(id_map).issubset(res_ids := {id(r) for r in residuals}):
-    unused = [(i, core.get_aval(x)) for i, (x, w) in enumerate(zip(primals, which))
+    unused = [(i, core.get_aval(x)) for i, (x, w) in enumerate(safe_zip(primals, which))
               if w and id(x) not in res_ids]
     assert unused
     if len(unused) == 1:
@@ -2206,7 +2203,7 @@ def _saved_input_vjpfun(res_spec, filtered_tree, in_tree, out_tree, jaxpr,
     raise ValueError(
         "inputs passed to f_vjp must be a tuple of (pytrees of) "
         "arrays with the same structure as\n"
-        "  tuple(x for x, w in zip(inputs, which) if w)\n"
+        "  tuple(x for x, w in safe_zip(inputs, which) if w)\n"
         "given the original call\n"
         "  _, f_vjp = saved_input_vjp(f, which, *inputs, ...)\n"
         "but the structures differ:\n" +
@@ -2275,15 +2272,15 @@ def linear_transpose(fun: Callable, *primals, reduce_axes=()) -> Callable:
       lu.wrap_init(fun,
                    debug_info=debug_info("linear_transpose", fun, primals, {})),
       in_tree)
-  in_avals = map(shaped_abstractify, primals_flat)
-  in_dtypes = map(dtypes.dtype, in_avals)
+  in_avals = safe_map(shaped_abstractify, primals_flat)
+  in_dtypes = safe_map(dtypes.dtype, in_avals)
 
-  in_pvals = map(pe.PartialVal.unknown, in_avals)
+  in_pvals = safe_map(pe.PartialVal.unknown, in_avals)
   jaxpr, out_pvals, const = pe.trace_to_jaxpr_nounits(flat_fun, in_pvals,
                                                       instantiate=True)
   jaxpr, _ = pe.dce_jaxpr(jaxpr, [True] * len(jaxpr.outvars), True)
   out_avals, _ = unzip2(out_pvals)
-  out_dtypes = map(dtypes.dtype, out_avals)
+  out_dtypes = safe_map(dtypes.dtype, out_avals)
   if not (all(dtypes.issubdtype(d, np.inexact) for d in in_dtypes + out_dtypes)
           or all(dtypes.issubdtype(d, np.integer)
                  for d in in_dtypes + out_dtypes)):
@@ -2297,12 +2294,12 @@ def linear_transpose(fun: Callable, *primals, reduce_axes=()) -> Callable:
     if out_tree() != out_tree2:
       raise TypeError("cotangent tree does not match function output, "
                       f"expected {out_tree()} but got {out_tree2}")
-    if not all(map(core.typecheck, out_avals, out_cts)):
+    if not all(safe_map(core.typecheck, out_avals, out_cts)):
       raise TypeError("cotangent type does not match function output, "
                       f"expected {out_avals} but got {out_cts}")
     dummies = [ad.UndefinedPrimal(a) for a in in_avals]
     in_cts = ad.backward_pass(jaxpr, True, const, dummies, out_cts)
-    in_cts = map(ad.instantiate_zeros, in_cts)
+    in_cts = safe_map(ad.instantiate_zeros, in_cts)
     return tree_unflatten(in_tree, in_cts)
 
   # Ensure that transposed_fun is a PyTree
@@ -2540,10 +2537,10 @@ def device_put(
       src_flat = [_infer_src_sharding(src, xf) for xf in x_flat]
     else:
       src_flat = flatten_axes("device_put source", treedef, src)
-      src_flat = list(map(_infer_src_sharding, src_flat, x_flat))
+      src_flat = safe_map(_infer_src_sharding, src_flat, x_flat)
 
-    device_flat = map(pspec_to_sharding, device_flat)
-    src_flat = map(pspec_to_sharding, src_flat)
+    device_flat = safe_map(pspec_to_sharding, device_flat)
+    src_flat = safe_map(pspec_to_sharding, src_flat)
 
     if isinstance(donate, bool):
       donate_flat = [donate] * len(x_flat)
@@ -2556,7 +2553,7 @@ def device_put(
       may_alias_flat = flatten_axes("device_put may_alias", treedef, may_alias)
 
     copy_semantics = []
-    for m, d in zip(may_alias_flat, donate_flat):
+    for m, d in safe_zip(may_alias_flat, donate_flat):
       if m and d:
         raise ValueError('may_alias and donate cannot be True at the same time.')
       if m is None:
@@ -2569,7 +2566,7 @@ def device_put(
         assert not m and not d
         copy_semantics.append(dispatch.CopySemantics.COPY)
 
-    for xf, d in zip(x_flat, device_flat):
+    for xf, d in safe_zip(x_flat, device_flat):
       _check_sharding(shaped_abstractify(xf), d)
     out_flat = dispatch.device_put_p.bind(
         *x_flat, devices=device_flat, srcs=src_flat,
@@ -2635,8 +2632,8 @@ def device_put_sharded(shards: Sequence[Any], devices: Sequence[xc.Device]):  # 
 
   def _device_put_sharded(*xs):
     avals = [core.get_aval(x) for x in xs]
-    if not all(a1 == a2 for a1, a2 in zip(avals[:-1], avals[1:])):
-      a1, a2 = next((a1, a2) for a1, a2 in zip(avals[:-1], avals[1:])
+    if not all(a1 == a2 for a1, a2 in safe_zip(avals[:-1], avals[1:])):
+      a1, a2 = next((a1, a2) for a1, a2 in safe_zip(avals[:-1], avals[1:])
                     if a1 != a2)
       raise ValueError("the shards passed to device_put_sharded must have "
                        f"consistent shape and dtype, but got {a1} and {a2}.")

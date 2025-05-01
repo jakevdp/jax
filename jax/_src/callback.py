@@ -42,6 +42,7 @@ from jax._src.lib.mlir import ir
 from jax._src.lib.mlir.dialects import hlo
 from jax._src.sharding_impls import SdyArraySharding, SdyArrayShardingList, SingleDeviceSharding
 from jax._src.typing import DeprecatedArg
+from jax._src.util import safe_map, safe_zip
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -50,9 +51,6 @@ logger = logging.getLogger(__name__)
 pure_callback_p = core.Primitive("pure_callback")
 pure_callback_p.multiple_results = True
 dispatch.prim_requires_devices_during_lowering.add(pure_callback_p)
-
-map, unsafe_map = util.safe_map, map
-zip, unsafe_zip = util.safe_zip, zip
 
 
 @dataclasses.dataclass(frozen=True)
@@ -474,7 +472,7 @@ def io_callback_batching_rule(
     raise ValueError("Cannot `vmap` ordered IO callback.")
   is_batched = [d is not batching.not_mapped for d in dims]
   new_args = [arg if dim is batching.not_mapped else
-              batching.moveaxis(arg, dim, 0) for arg, dim in zip(args, dims)]
+              batching.moveaxis(arg, dim, 0) for arg, dim in safe_zip(args, dims)]
   unbatched_args, batched_args = util.partition_list(is_batched, new_args)
   def _batch_fun(batched_args):
     merged = util.merge_lists(is_batched, unbatched_args, batched_args)
@@ -568,8 +566,8 @@ def io_callback(
   flat_args, in_tree = tree_util.tree_flatten((args, kwargs))
   tree_util.tree_map(_check_shape_dtype, result_shape_dtypes)
   flat_shape_dtypes, out_tree = tree_util.tree_flatten(result_shape_dtypes)
-  flat_result_avals = map(lambda x: core.ShapedArray(x.shape, x.dtype),
-                          flat_shape_dtypes)
+  flat_result_avals = safe_map(lambda x: core.ShapedArray(x.shape, x.dtype),
+                               flat_shape_dtypes)
   out_flat = io_callback_p.bind(
       *flat_args,
       callback=_FlatCallback(callback, in_tree),
@@ -784,7 +782,7 @@ def emit_python_callback(
           "Expected: {}, Actual: {}".format(len(result_avals), len(out_vals)))
     # Handle Python literals, and custom arrays, e.g., tf.Tensor.
     out_vals = tuple(xla.canonicalize_dtype(np.asarray(a)) for a in out_vals)
-    for i, (out_val, out_aval) in enumerate(zip(out_vals, result_avals)):
+    for i, (out_val, out_aval) in enumerate(safe_zip(out_vals, result_avals)):
       if out_val.shape != out_aval.shape:
         raise RuntimeError(
             f"Incorrect output shape for return value #{i}: "
@@ -801,7 +799,7 @@ def emit_python_callback(
       # TODO(b/238239458): fix TPU Recv to work with empty arrays.
       non_empty_out_vals = tuple(
           out_val
-          for out_val, result_aval in zip(out_vals, result_avals)
+          for out_val, result_aval in safe_zip(out_vals, result_avals)
           if not is_empty_shape(result_aval.shape))
       return non_empty_out_vals
     else:
@@ -810,7 +808,7 @@ def emit_python_callback(
   if platform == "tpu":
     non_empty_result_avals, non_empty_result_shapes = util.unzip2([
         (aval, shape)
-        for aval, shape in zip(result_avals, result_shapes)
+        for aval, shape in safe_zip(result_avals, result_shapes)
         if not is_empty_shape(aval.shape)])
     non_empty_outputs, token = _emit_tpu_python_callback(
         backend, ctx, _wrapped_callback,  token,

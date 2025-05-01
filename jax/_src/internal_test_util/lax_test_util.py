@@ -27,14 +27,11 @@ import jax
 from jax import lax
 from jax._src import dtypes
 from jax._src import test_util
-from jax._src.util import safe_map, safe_zip
+from jax._src.util import safe_map
 
 import numpy as np
 
 jax.config.parse_flags_with_absl()
-
-map, unsafe_map = safe_map, map
-zip, unsafe_zip = safe_zip, zip
 
 
 # For standard unops and binops, we can generate a large number of tests on
@@ -399,5 +396,5 @@ def slicer(x, bdim):
 
 
 def args_slicer(args, bdims):
-  slicers = map(slicer, args, bdims)
+  slicers = safe_map(slicer, args, bdims)
   return lambda i: [sl(i) for sl in slicers]

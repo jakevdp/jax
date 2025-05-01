@@ -59,9 +59,6 @@ from jax._src.util import (as_hashable_function, split_list, safe_map, safe_zip,
 source_info_util.register_exclusion(__file__)
 traceback_util.register_exclusion(__file__)
 
-map, unsafe_map = safe_map, map
-zip, unsafe_zip = safe_zip, zip
-
 Bool = Union[bool, Array]
 Int = Union[int, Array]
 ErrorCategory = type['JaxException']
@@ -421,7 +418,7 @@ def checkify_jaxpr_flat(jaxpr: core.Jaxpr, consts: Sequence[core.Value],
 
   # interpreter loop
   for eqn in jaxpr.eqns:
-    invals = map(read_env, eqn.invars)
+    invals = safe_map(read_env, eqn.invars)
     checkify_rule = error_checks.get(
         eqn.primitive, functools.partial(default_checkify_rule, eqn.primitive))
     name_stack = source_info_util.current_name_stack() + eqn.source_info.name_stack
@@ -435,7 +432,7 @@ def checkify_jaxpr_flat(jaxpr: core.Jaxpr, consts: Sequence[core.Value],
       write_env(eqn.outvars[0], outvals)
     core.clean_up_dead_vars(eqn, env, last_used)
 
-  return error, map(read_env, jaxpr.outvars)
+  return error, safe_map(read_env, jaxpr.outvars)
 
 def checkify_jaxpr_flat_hashable(jaxpr, hashable_consts, enabled_errors,
                                  err_tree, *args):
@@ -549,10 +546,10 @@ mlir.register_lowering(check_p, check_lowering_rule,
                        platform='gpu')
 
 def check_batching_rule(batched_args, batch_dims, *, err_tree, debug):
-  size = next(x.shape[dim] for x, dim in zip(batched_args, batch_dims)
+  size = next(x.shape[dim] for x, dim in safe_zip(batched_args, batch_dims)
               if dim is not batching.not_mapped)
   batched_args = (batching.bdim_at_front(a, d, size)
-                  for a, d in zip(batched_args, batch_dims))
+                  for a, d in safe_zip(batched_args, batch_dims))
   err = tree_unflatten(err_tree, batched_args)
   _check_error(err, debug=debug)
   return [], []
@@ -763,7 +760,7 @@ def cond_error_check(error: Error, enabled_errors, index, *ops, branches):
   # Get the error-effects out of all branches so the cond can be called with
   # a merged error with all these effects.
   err_vals, err_tree = jtu.tree_flatten(error)
-  in_avals = map(core.get_aval, [*err_vals, *ops])
+  in_avals = safe_map(core.get_aval, [*err_vals, *ops])
   def get_error_effects_from_jaxpr(jxpr):
     _, _, effects = jaxpr_to_checkify_jaxpr(jxpr, enabled_errors, err_tree,
                                             *in_avals)
@@ -773,7 +770,7 @@ def cond_error_check(error: Error, enabled_errors, index, *ops, branches):
   err_vals, err_tree = jtu.tree_flatten(merged_error)
 
   # Update branch jaxprs to be checkified jaxprs.
-  in_avals = map(core.get_aval, [*err_vals, *ops])
+  in_avals = safe_map(core.get_aval, [*err_vals, *ops])
   new_branches, out_trees, _ = unzip3(
       jaxpr_to_checkify_jaxpr(
           jxpr, enabled_errors, err_tree, *in_avals) for jxpr in branches)
@@ -799,7 +796,7 @@ def scan_error_check(error, enabled_errors, *in_flat, reverse, length, jaxpr,
   # Query body effects to create a merged error containing all effects (such
   # that in and out carried error are of the same type).
   err_vals, err_tree = jtu.tree_flatten(error)
-  new_in_aval = map(core.get_aval, [*err_vals, *consts, *carry]) + xs_mapped
+  new_in_aval = safe_map(core.get_aval, [*err_vals, *consts, *carry]) + xs_mapped
   _, _, effects = jaxpr_to_checkify_jaxpr(jaxpr, enabled_errors,
                                           err_tree, *new_in_aval)
 
@@ -807,7 +804,7 @@ def scan_error_check(error, enabled_errors, *in_flat, reverse, length, jaxpr,
   err_vals, err_tree = jtu.tree_flatten(merged_error)
 
   # Create checked-jaxpr, with the needed pre-processing on the inputs.
-  new_in_aval = map(core.get_aval, [*err_vals, *consts, *carry]) + xs_mapped
+  new_in_aval = safe_map(core.get_aval, [*err_vals, *consts, *carry]) + xs_mapped
   checked_jaxpr_, out_tree, _ = jaxpr_to_checkify_jaxpr(jaxpr, enabled_errors,
                                                         err_tree, *new_in_aval)
 
@@ -843,7 +840,7 @@ def checkify_while_body_jaxpr(
                                                              *body_jaxpr.in_avals])
   closed_jaxpr = pe.close_jaxpr(jaxpr)
   err_vals, err_tree = jtu.tree_flatten(error)
-  err_vals = map(core.get_aval, err_vals)
+  err_vals = safe_map(core.get_aval, err_vals)
   flat_err_and_in_vals = [*err_vals, *c_consts_avals, *body_jaxpr.in_avals]
   jaxpr, out_tree, error_effects = jaxpr_to_checkify_jaxpr(
       closed_jaxpr, enabled_errors, err_tree, *flat_err_and_in_vals)
@@ -885,7 +882,7 @@ def while_loop_error_check(error, enabled_errors, *in_flat, cond_nconsts,
   checked_body_jaxpr = pe.move_binders_to_front(checked_body_jaxpr_, to_move)
 
   cond_in_flat = [*err_vals, *c_consts, *carry]
-  cond_in_flat = map(core.get_aval, cond_in_flat)
+  cond_in_flat = safe_map(core.get_aval, cond_in_flat)
   checked_cond_jaxpr, _, _ = jaxpr_to_checkify_jaxpr(cond_jaxpr, enabled_errors,
                                                      err_tree, *cond_in_flat)
   compat_cond_jaxpr_ = ignore_error_output_jaxpr(checked_cond_jaxpr, num_error_vals)
@@ -967,7 +964,7 @@ def shard_map_error_check(
   # Replicated sharding for in errors.
   new_in_names = (*([{}] * num_error_vals), *in_names)
   new_vals_in = [*err_vals, *vals_in]
-  in_avals = list(map(core.get_aval, new_vals_in))
+  in_avals = safe_map(core.get_aval, new_vals_in)
   manual_axes = kwargs.get('manual_axes')
   check_vma = kwargs.get('check_vma')
   for i, v in enumerate(in_avals):
@@ -1071,7 +1068,7 @@ def lift_jvp(num_errs: int, num_consts: int,
     nz_out_tangents_ = iter(nz_out_tangents)
     out_tangents = [SymbolicZero(core.get_aval(p).to_tangent_aval())
                     if z else next(nz_out_tangents_)
-                    for p, z in zip(out_primals, out_zeros)]
+                    for p, z in safe_zip(out_primals, out_zeros)]
     assert next(nz_out_tangents_, None) is None
     primal_errs = xs[num_consts:num_consts+num_errs]
     tangent_errs = xs[n+num_consts:n+num_consts+num_errs]

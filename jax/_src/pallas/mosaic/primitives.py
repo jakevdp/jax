@@ -26,7 +26,6 @@ from jax._src import prng as jax_prng
 from jax._src import random as jax_random
 from jax._src import state
 from jax._src import tree_util
-from jax._src import util
 from jax._src.interpreters import mlir
 from jax._src.pallas import core as pl_core
 from jax._src.pallas import primitives
@@ -40,9 +39,6 @@ from jax._src.typing import DTypeLike
 import jax.numpy as jnp
 
 Slice = indexing.Slice
-
-map, unsafe_map = util.safe_map, map
-zip, unsafe_zip = util.safe_zip, zip
 
 repeat_p = jax_core.Primitive('repeat')
 

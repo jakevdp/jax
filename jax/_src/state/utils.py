@@ -27,7 +27,6 @@ from jax._src.typing import DTypeLike
 from jax._src.util import safe_map, safe_zip, split_list
 
 map, unsafe_map = safe_map, map
-zip, unsafe_zip = safe_zip, zip
 
 
 def hoist_consts_to_refs(
@@ -56,7 +55,7 @@ def hoist_consts_to_refs(
   ]
   const_avals = [
       var.aval if is_ref else make_abstract_ref(var.aval)
-      for is_ref, var in zip(is_const_ref, jaxpr.constvars)
+      for is_ref, var in safe_zip(is_const_ref, jaxpr.constvars)
   ]
   in_avals = [var.aval for var in jaxpr.invars]
   in_avals[index:index] = const_avals
@@ -68,7 +67,7 @@ def hoist_consts_to_refs(
     # We immediately read the const values out of the `Ref`s.
     all_consts = [
         c if is_ref else ref_get(c, ())
-        for is_ref, c in zip(is_const_ref, all_consts)
+        for is_ref, c in safe_zip(is_const_ref, all_consts)
     ]
     return core.eval_jaxpr(jaxpr, all_consts, *args0, *args1)
 

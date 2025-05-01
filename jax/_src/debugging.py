@@ -37,7 +37,6 @@ from jax._src import effects
 from jax._src import mesh as mesh_lib
 from jax._src import sharding_impls
 from jax._src import tree_util
-from jax._src import util
 from jax._src.interpreters import ad
 from jax._src.interpreters import batching
 from jax._src.interpreters import mlir
@@ -49,6 +48,7 @@ from jax._src.sharding import Sharding
 from jax._src.sharding_impls import (
     NamedSharding, PartitionSpec as P, parse_flatten_op_sharding)
 from jax._src.state import discharge as state_discharge
+from jax._src.util import safe_map
 
 logger = logging.getLogger(__name__)
 
@@ -73,8 +73,6 @@ effects.custom_derivatives_allowed_effects.add_type(OrderedDebugEffect)
 # `debug_callback_p` is the main primitive for staging out Python callbacks.
 debug_callback_p = core.Primitive('debug_callback')
 debug_callback_p.multiple_results = True
-
-map, unsafe_map = util.safe_map, map
 
 @debug_callback_p.def_impl
 def debug_callback_impl(*args, callback: Callable[..., Any],
@@ -116,7 +114,7 @@ def debug_callback_batching_rule(args, dims, **params):
     return lax.index_in_dim(arg, i, axis=dim, keepdims=False)
   outs = []
   for i in range(axis_size):
-    args_idx = map(partial(get_arg_at_dim, i), dims, args)
+    args_idx = safe_map(partial(get_arg_at_dim, i), dims, args)
     outs.append(debug_callback_p.bind(*args_idx, **params))
   outs = [jnp.stack(xs) for xs in zip(*outs)]
   return outs, (0,) * len(outs)
@@ -530,7 +528,7 @@ def _canonicalize_color(color: Color) -> str:
   return f"#{r:02X}{g:02X}{b:02X}"
 
 def _get_text_color(color: str) -> str:
-  r, g, b = map(lambda x: int(x, 16), (color[1:3], color[3:5], color[5:7]))
+  r, g, b = safe_map(lambda x: int(x, 16), (color[1:3], color[3:5], color[5:7]))
   if (r * 0.299 + g * 0.587 + b * 0.114) > 186:
     return "#000000"
   return "#ffffff"
@@ -589,7 +587,7 @@ def visualize_sharding(shape: Sequence[int], sharding: Sharding, *,
   for i, (dev, slcs) in enumerate(device_indices_map.items()):
     assert slcs is not None
     slcs = tuple(map(_raise_to_slice, slcs))
-    chunk_idxs = tuple(map(_slice_to_chunk_idx, shape, slcs))
+    chunk_idxs = tuple(safe_map(_slice_to_chunk_idx, shape, slcs))
     if slcs is None:
       raise NotImplementedError
     if len(slcs) == 2:

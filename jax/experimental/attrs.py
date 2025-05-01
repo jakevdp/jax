@@ -30,9 +30,6 @@ from jax._src.tree_util import (tree_flatten, tree_unflatten, tree_structure,
 from jax._src.util import unzip2, safe_map, safe_zip, split_list
 from jax._src.dtypes import dtype, float0
 
-map, unsafe_map = safe_map, map
-zip, unsafe_zip = safe_zip, zip
-
 Array = Any
 JaxVal = Any
 Pytree = Any
@@ -104,7 +101,7 @@ def _ensure_tracked(trace: pe.DynamicJaxprTrace, obj: Any, attr: str):
     init_val = getattr(obj, attr, dne_sentinel)
     frame.attrs_inits.append(init_val)
     init_vals, init_tree = tree_flatten(init_val)
-    tracers = map(new_tracer, init_vals)
+    tracers = safe_map(new_tracer, init_vals)
     setattr(obj, attr, tree_unflatten(init_tree, tracers))
     frame.attrs_tracked.append((obj, attr, ReadWrite))
 pe.DynamicJaxprTrace._ensure_tracked = _ensure_tracked
@@ -158,7 +155,7 @@ def jvp(f, primals, tangents, attr_tangents):
 
 @lu.transformation2
 def _set_attrs(f, attrs, attr_vals, *args):
-  for (o, a), x in zip(attrs, attr_vals):
+  for (o, a), x in safe_zip(attrs, attr_vals):
     jax_setattr(o, a, x)
   return f(*args)
 
@@ -181,7 +178,7 @@ def jvp_subtrace2(f, tag, primals, tangents):
     trace = ad.JVPTrace(parent_trace, tag)
     tag.attrs_tracked = []  # attrs written to
     in_tracers = [ad.JVPTracer(trace, x, t) if type(t) is not ad.Zero else x
-                  for x, t in zip(primals, tangents)]
+                  for x, t in safe_zip(primals, tangents)]
     with core.set_current_trace(trace):
       ans = f(*in_tracers)
       out_primals, out_tangents = unzip2(map(trace.to_primal_tangent_pair, ans))
@@ -252,14 +249,14 @@ def _lin_wrap(jaxpr, consts, out_pvals, attr_avals, io_tree, in_attrs, out_attrs
     tangents_, in_tree_ = tree_flatten(tangents)
     assert in_tree == in_tree_
     attr_tangents_ = [attr_tangents.get(a, ad.Zero(aval))
-                      for a, aval in zip(in_attrs, attr_avals)]
+                      for a, aval in safe_zip(in_attrs, attr_avals)]
     out = core.eval_jaxpr(jaxpr, consts, *attr_tangents_, *tangents_)
     out_ = iter(out)
     out = [p.get_known() if p.is_known() else next(out_) for p in out_pvals]
     assert next(out_, None) is None
     tangents_out, attr_tangents_out = split_list(out, [len(out)-len(out_attrs)])
     out_ct = tree_unflatten(out_tree, tangents_out)
-    return out_ct, dict(zip(out_attrs, attr_tangents_out))
+    return out_ct, dict(safe_zip(out_attrs, attr_tangents_out))
   return f_lin
 
 
@@ -285,9 +282,9 @@ def _vjp_wrap(jaxpr, consts, out_pvals, attr_avals, io_tree, in_attrs, out_attrs
     out_cts, out_tree_ = tree_flatten(out_ct)
     assert out_tree == out_tree_
     attr_cts = [attr_cotangents.get(a, ad.Zero(aval))
-                for a, aval in zip(out_attrs, attr_avals)]
+                for a, aval in safe_zip(out_attrs, attr_avals)]
     out = ad.backward_pass(jaxpr, (), consts, dummies, (*out_cts, *attr_cts))
     in_attr_bars, arg_cts = split_list(out, [len(in_attrs)])
-    args_ct = tree_unflatten(in_tree, map(ad.instantiate_zeros, arg_cts))
-    return args_ct, dict(zip(in_attrs, in_attr_bars))
+    args_ct = tree_unflatten(in_tree, safe_map(ad.instantiate_zeros, arg_cts))
+    return args_ct, dict(safe_zip(in_attrs, in_attr_bars))
   return f_vjp

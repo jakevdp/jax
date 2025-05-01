@@ -37,14 +37,11 @@ from jax._src.interpreters import partial_eval as pe
 from jax._src.interpreters import xla
 from jax._src.tree_util import (tree_flatten, tree_map, tree_structure,
                                 tree_unflatten, treedef_tuple)
+from jax._src.util import safe_map, safe_zip
 
 
 source_info_util.register_exclusion(__file__)
 traceback_util.register_exclusion(__file__)
-
-
-map, unsafe_map = util.safe_map, map
-zip, unsafe_zip = util.safe_zip, zip
 
 
 @custom_api_util.register_custom_decorator_type
@@ -246,8 +243,8 @@ def custom_vmap_impl(*args, call, rule, in_tree, out_tree):
 
 def custom_vmap_batching(args_flat, dims, *, call, rule, in_tree, out_tree):
   del call
-  axis_size, = {x.shape[d] for x, d in zip(args_flat, dims) if d is not None}
-  args_flat = map(maybe_bdim_at_front, args_flat, dims)
+  axis_size, = {x.shape[d] for x, d in safe_zip(args_flat, dims) if d is not None}
+  args_flat = safe_map(maybe_bdim_at_front, args_flat, dims)
   flat_in_batched = [d is not not_mapped for d in dims]
 
   args = tree_unflatten(in_tree, args_flat)
@@ -315,9 +312,9 @@ def custom_vmap_jvp(primals, tangents, *,
     assert not ragged
     flat_out_ps, flat_out_ts = flat_out_ps_ts[:n], flat_out_ps_ts[n:]
     flat_out_axes_p, flat_out_axes_t = flat_out_axes[:n], flat_out_axes[n:]
-    flat_out_ps = map(maybe_bdim_at_front, flat_out_ps, flat_out_axes_p)
+    flat_out_ps = safe_map(maybe_bdim_at_front, flat_out_ps, flat_out_axes_p)
     flat_out_extra_batched_ps = [d is not not_mapped for d in flat_out_axes_p]
-    flat_out_ts = map(maybe_bdim_at_front, flat_out_ts, flat_out_axes_t)
+    flat_out_ts = safe_map(maybe_bdim_at_front, flat_out_ts, flat_out_axes_t)
     flat_out_extra_batched_ts = [d is not not_mapped for d in flat_out_axes_t]
 
     out_ps, out_ts = tree_unflatten(
@@ -332,7 +329,7 @@ def custom_vmap_jvp(primals, tangents, *,
 
     return (out_ps, out_ts), (out_batched_ps, out_batched_ts)
 
-  tangents = map(ad.instantiate_zeros, tangents)
+  tangents = safe_map(ad.instantiate_zeros, tangents)
   jvp_call, _ = ad.jvp_jaxpr(call, [True] * len(primals), True)
   jvp_in_tree = treedef_tuple((in_tree, in_tree))
   jvp_out_tree = treedef_tuple((out_tree, out_tree))

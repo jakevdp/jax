@@ -98,9 +98,6 @@ DIM_UPPER_BOUND = np.iinfo(np.int32).max
 DIM_LOWER_BOUND = -128
 
 partial = functools.partial
-map, unsafe_map = safe_map, map  # pylint: disable=redefined-builtin
-zip, unsafe_zip = safe_zip, zip  # pylint: disable=redefined-builtin
-
 
 @dataclasses.dataclass
 class MeshContext:
@@ -188,7 +185,7 @@ class LoweringContext:
     valid_grid_sizes = tuple(
         d for i, d in enumerate(self.grid_sizes) if i not in self.mapped_dims
     )
-    grid_env = zip(grid_names, valid_grid_sizes)
+    grid_env = safe_zip(grid_names, valid_grid_sizes)
     with jax_core.extend_axis_env_nd(grid_env):
       yield
 
@@ -455,7 +452,7 @@ class MosaicGridMapping:
         aval.shape for aval in scalar_prefetch_avals)
     self.operand_types, self.operand_block_shapes = unzip2([
         _get_arg_type(dynamic_shape_replacement_fn, aval, block_mapping)
-        for aval, block_mapping in zip(operand_avals, self.block_mappings)
+        for aval, block_mapping in safe_zip(operand_avals, self.block_mappings)
     ])
     self.scratch_types, _ = unzip2([
         _get_arg_type(dynamic_shape_replacement_fn, aval, None)
@@ -549,9 +546,9 @@ class MosaicGridMapping:
       return f"#tpu.dimension_semantics<{s}>"
 
     return ir.ArrayAttr.get(
-        map(
+        safe_map(
             ir.Attribute.parse,
-            map(_get_semantics, self._dimension_semantics),
+            safe_map(_get_semantics, self._dimension_semantics),
         )
     )
 
@@ -794,7 +791,7 @@ def lower_jaxpr_to_module(
             bd.padding if isinstance(bd, pallas_core.Element) else (0, 0)
             for bd in bm.block_shape
         ]
-        pad_low, pad_high = map(list, zip(*padding))
+        pad_low, pad_high = safe_map(list, safe_zip(*padding))
         block_params["window_kind"] = ir.Attribute.parse(
             f"#tpu.element_window<{pad_low},{pad_high}>"
         )
@@ -1066,7 +1063,7 @@ def _compute_name_stack_updates(
     pushed: A list of names pushed to the name stack as part of the update.
   """
   common_prefix_idx = 0
-  for i, (old, new) in enumerate(unsafe_zip(old_name_stack, new_name_stack)):
+  for i, (old, new) in enumerate(zip(old_name_stack, new_name_stack)):
     if old == new:
       common_prefix_idx = i+1
     else:
@@ -1094,7 +1091,7 @@ def jaxpr_subcomp(
     assert is_valid_type, type(val)
     env[var] = val
 
-  for invar, bs in zip(jaxpr.invars, ctx.block_shapes):
+  for invar, bs in safe_zip(jaxpr.invars, ctx.block_shapes):
     block_shape_env[invar] = bs
   foreach(write_env, jaxpr.invars, args)
 
@@ -1103,7 +1100,7 @@ def jaxpr_subcomp(
   # TODO(justinfu): Handle transform scopes.
   current_name_stack.extend(initial_name_stack)
   for eqn in jaxpr.eqns:
-    invals = map(read_env, eqn.invars)
+    invals = safe_map(read_env, eqn.invars)
     source_info = eqn.source_info.replace(
         name_stack=ctx.name_stack + eqn.source_info.name_stack
     )
@@ -1113,8 +1110,8 @@ def jaxpr_subcomp(
       if eqn.primitive in lowering_rules:
         if eqn.primitive not in skip_mlir_conversions:
           invals = [_ensure_mlir_value(x, v.aval)
-                    for x, v in zip(invals, eqn.invars)]
-        block_shapes = map(read_block_shape, eqn.invars)
+                    for x, v in safe_zip(invals, eqn.invars)]
+        block_shapes = safe_map(read_block_shape, eqn.invars)
         rule_context = LoweringRuleContext(
             ctx,
             [v.aval for v in eqn.invars],
@@ -1168,10 +1165,10 @@ def jaxpr_subcomp(
     tpu.TraceStopOp()
   assert len(pushed) == 0
 
-  outvals = map(read_env, jaxpr.outvars)
+  outvals = safe_map(read_env, jaxpr.outvars)
   outvals = [
       ir_constant(x) if isinstance(var, jax_core.Literal) else x
-      for x, var in zip(outvals, jaxpr.outvars)
+      for x, var in safe_zip(outvals, jaxpr.outvars)
   ]
   return outvals
 
@@ -1303,7 +1300,7 @@ def _indexer_to_start_size_stride(
     squeeze_dims.append(squeeze_dim)
   next_index = next(indices_iter, None)
   assert next_index is None, (indexer.indices, ref_block_shape)
-  new_ref_block_shape = tuple(s for s, squeeze in zip(sizes, squeeze_dims)
+  new_ref_block_shape = tuple(s for s, squeeze in safe_zip(sizes, squeeze_dims)
                               if not squeeze)
   return (
       tuple(starts),
@@ -1921,7 +1918,7 @@ def _broadcast_in_dim_lowering_rule(
 
   if broadcast_dimensions:
     out_shape_list = [1] * len(shape)
-    for i, s in zip(broadcast_dimensions, aval_in.shape):
+    for i, s in safe_zip(broadcast_dimensions, aval_in.shape):
       out_shape_list[i] = s
     out_shape = tuple(out_shape_list)
     out_type = ir.VectorType.get(
@@ -2268,7 +2265,7 @@ def _split_lowering_rule(
   starts = np.zeros_like(slice_size)
   strides = np.ones_like(slice_size)
   outs = []
-  for size, aval_out in zip(sizes, ctx.avals_out):
+  for size, aval_out in safe_zip(sizes, ctx.avals_out):
     slice_size[axis] = size
     outs.append(
         vector.extract_strided_slice(
@@ -3016,7 +3013,7 @@ def _for_lowering_rule(
     non_ref_args_iter = iter(non_ref_args)
     args = [
         next(non_ref_args_iter) if s else a
-        for a, s in zip(args, should_discharge)
+        for a, s in safe_zip(args, should_discharge)
     ]
   return args
 
@@ -3103,8 +3100,8 @@ def _scan_lowering_rule(
     args_avals = args_avals[1:]
   else:
     loop_index_start = 0
-  consts = map(_ensure_mlir_value, consts, consts_avals)
-  args = map(_ensure_mlir_value, args, args_avals)
+  consts = safe_map(_ensure_mlir_value, consts, consts_avals)
+  args = safe_map(_ensure_mlir_value, args, args_avals)
   out = _lower_jaxpr_to_for_loop(
       ctx, jaxpr, loop_index_start, length,
       consts, *args, has_loop_index=has_loop_index,
@@ -3218,7 +3215,7 @@ def _cond_lowering_rule(ctx: LoweringRuleContext, *args, branches):
   aval_to_ir_type_with_fn = functools.partial(
       aval_to_ir_type, ctx.lowering_context.dynamic_shape_replacement_fn
   )
-  out_types = map(aval_to_ir_type_with_fn, ctx.avals_out)
+  out_types = safe_map(aval_to_ir_type_with_fn, ctx.avals_out)
   pred = arith.cmpi(
       arith.CmpIPredicate.ne, index, ir_constant(0, index.type)
   )
@@ -3496,7 +3493,7 @@ def _run_scoped_lowering_rule(ctx: LoweringRuleContext, *consts, jaxpr):
     jaxpr = pe.convert_constvars_jaxpr(jaxpr)
   with ir.InsertionPoint(region.body):
     alloc_fn = functools.partial(_alloc_value, ctx=ctx)
-    args = map(alloc_fn, in_avals)
+    args = safe_map(alloc_fn, in_avals)
     block_shapes = tuple(a.shape if isinstance(a, state.AbstractRef) else None
                          for a in in_avals)
     ctx = ctx.lowering_context.replace(
@@ -3524,7 +3521,7 @@ def _device_id_to_logical(
         arith.addi,
         (
             arith.muli(a, arith.constant(i32, b))
-            for a, b in zip(device_ids, mesh_strides)
+            for a, b in safe_zip(device_ids, mesh_strides)
         ),
     )
   elif device_id_type is primitives.DeviceIdType.LOGICAL:

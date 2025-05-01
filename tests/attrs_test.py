@@ -26,7 +26,7 @@ import jax.numpy as jnp
 
 from jax._src import config
 from jax._src import test_util as jtu
-from jax._src.util import safe_zip, safe_map
+from jax._src.util import safe_map
 
 from jax.experimental import attrs
 from jax.experimental.attrs import jax_setattr, jax_getattr, jax_appendattr
@@ -34,7 +34,6 @@ from jax.experimental.attrs import jax_setattr, jax_getattr, jax_appendattr
 config.parse_flags_with_absl()
 
 map, unsafe_map = safe_map, map
-zip, unsafe_zip = safe_zip, zip
 
 @dataclass
 class Thing:

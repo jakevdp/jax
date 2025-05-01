@@ -36,20 +36,17 @@ from jax._src.util import safe_map, safe_zip
 
 jax.config.parse_flags_with_absl()
 
-map, unsafe_map = safe_map, map
-zip, unsafe_zip = safe_zip, zip
-
 
 class LaxVmapTest(jtu.JaxTestCase):
 
   def _CheckBatching(self, op, bdim_size, bdims, shapes, dtypes, rng,
                      rtol=None, atol=None, multiple_results=False):
-    batched_shapes = map(partial(lax_test_util.add_bdim, bdim_size), bdims, shapes)
-    args = [rng(shape, dtype) for shape, dtype in zip(batched_shapes, dtypes)]
+    batched_shapes = safe_map(partial(lax_test_util.add_bdim, bdim_size), bdims, shapes)
+    args = [rng(shape, dtype) for shape, dtype in safe_zip(batched_shapes, dtypes)]
     args_slice = lax_test_util.args_slicer(args, bdims)
     ans = jax.vmap(op, bdims)(*args)
     if bdim_size == 0:
-      args = [rng(shape, dtype) for shape, dtype in zip(shapes, dtypes)]
+      args = [rng(shape, dtype) for shape, dtype in safe_zip(shapes, dtypes)]
       out = op(*args)
       if not multiple_results:
         expected = np.zeros((0,) + out.shape, out.dtype)
@@ -60,7 +57,7 @@ class LaxVmapTest(jtu.JaxTestCase):
       if not multiple_results:
         expected = np.stack(outs)
       else:
-        expected = [np.stack(xs) for xs in zip(*outs)]
+        expected = [np.stack(xs) for xs in safe_zip(*outs)]
     self.assertAllClose(ans, expected, rtol=rtol, atol=atol)
 
   @jtu.sample_product(

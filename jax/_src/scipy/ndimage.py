@@ -22,7 +22,7 @@ from jax._src import util
 from jax import lax
 import jax.numpy as jnp
 from jax._src.typing import ArrayLike, Array
-from jax._src.util import safe_zip as zip
+from jax._src.util import safe_zip
 
 
 def _nonempty_prod(arrs: Sequence[Array]) -> Array:
@@ -97,7 +97,7 @@ def _map_coordinates(input: ArrayLike, coordinates: Sequence[ArrayLike],
         'jax.scipy.ndimage.map_coordinates currently requires order<=1')
 
   valid_1d_interpolations = []
-  for coordinate, size in zip(coordinate_arrs, input_arr.shape):
+  for coordinate, size in safe_zip(coordinate_arrs, input_arr.shape):
     interp_nodes = interp_fun(coordinate)
     valid_interp = []
     for index, weight in interp_nodes:

@@ -27,11 +27,9 @@ from jax._src.state import discharge
 from jax._src.pallas import core as pallas_core
 from jax._src.interpreters import partial_eval as pe
 from jax._src.util import safe_map
-from jax._src.util import safe_zip
 from jax._src.lax import lax
 
 map, unsafe_map = safe_map, map  # pylint: disable=redefined-builtin
-zip, unsafe_zip = safe_zip, zip  # pylint: disable=redefined-builtin
 
 _cost_rules = {}
 

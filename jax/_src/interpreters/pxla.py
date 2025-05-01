@@ -83,8 +83,6 @@ class WeakRefList(list):
 
 xe = xc._xla
 
-unsafe_map, map = map, safe_map  # type: ignore
-
 logger = logging.getLogger(__name__)
 
 Index = Union[int, slice, tuple[Union[int, slice], ...]]
@@ -349,7 +347,7 @@ def xla_pmap_impl_lazy(
                         donated_invars=donated_invars,
                         is_explicit_global_axis_size=is_explicit_global_axis_size)
     return _emap_apply_fn
-  abstract_args = unsafe_map(core.abstractify, args)
+  abstract_args = map(core.abstractify, args)
   compiled_fun, fingerprint = parallel_callable(
       fun, backend, axis_name, axis_size, global_axis_size, devices, name,
       in_axes, out_axes_thunk, donated_invars,
@@ -360,7 +358,7 @@ def xla_pmap_impl_lazy(
     distributed_debug_log(("Running pmapped function", name),
                           ("python function", fun.f),
                           ("devices", devices),
-                          ("abstract args", map(core.abstractify, args)),
+                          ("abstract args", safe_map(core.abstractify, args)),
                           ("fingerprint", fingerprint))
   return compiled_fun
 
@@ -400,7 +398,7 @@ def _emap_impl(fun: lu.WrappedFun, *args,
     with core.set_current_trace(trace):
       ans = fun.call_wrapped(*tracers)
 
-    out_tracers = map(trace.to_map_tracer, ans)
+    out_tracers = safe_map(trace.to_map_tracer, ans)
     outvals, out_axes_src = unzip2((t.val, t.shard_axes) for t in out_tracers)
 
   out_axes = out_axes_thunk()
@@ -485,11 +483,11 @@ class MapTrace(core.Trace):
     else:
       f = HashableFunction(lambda *args: primitive.bind(*args, **params),
                            (primitive, tuple(params.items())))
-    tracers = map(self.to_map_tracer, tracers)
+    tracers = safe_map(self.to_map_tracer, tracers)
     vals, shard_axes = unzip2([(t.val, t.shard_axes) for t in tracers])
     info = self.emap_info
     names = core.get_axis_env().axis_names()
-    all_axes = tuple(_map_schedule(map(s.get, names)) for s in shard_axes)  # pytype: disable=wrong-arg-types  # always-use-return-annotations
+    all_axes = tuple(_map_schedule(safe_map(s.get, names)) for s in shard_axes)  # pytype: disable=wrong-arg-types  # always-use-return-annotations
     f_mapped, out_shard_axes = _multi_pmap(f, self.emap_info, names, all_axes)
     with core.eval_context(), jax.disable_jit(False):
       outvals = f_mapped(*vals)
@@ -515,15 +513,15 @@ class MapTrace(core.Trace):
     shard_axes = [{axis_name: _annot_to_flat(np.ndim(v), s.values(), ax), **s}
                   if ax is not None else s
                   for v, ax, s in zip(vals, in_axes, shard_axes)]
-    in_tracers = map(partial(MapTracer, self), vals, shard_axes)
+    in_tracers = safe_map(partial(MapTracer, self), vals, shard_axes)
     with core.extend_axis_env_nd([(axis_name, axis_size)]):
       with core.set_current_trace(self):
         ans = fun.call_wrapped(*in_tracers)
-      out_tracers = map(self.to_map_tracer, ans)
+      out_tracers = safe_map(self.to_map_tracer, ans)
       out, outaxes = unzip2((t.val, t.shard_axes) for t in out_tracers)
     out, outaxes = unzip2(_match_annot(axis_name, axis_size, v, s, dst)
                            for v, s, dst in zip(out, outaxes, out_axes_thunk()))
-    return map(partial(MapTracer, self), out, outaxes)
+    return safe_map(partial(MapTracer, self), out, outaxes)
 
   def process_custom_jvp_call(self, prim, fun, jvp, tracers, *, symbolic_zeros):
     if symbolic_zeros:
@@ -1033,7 +1031,7 @@ class UnloadedPmapExecutable:
         devices = xb.local_devices(backend=pci.backend)[:shards.num_local_shards]
     else:
       if shards.num_local_shards != len(pci.local_devices):
-        local_devices_str = ", ".join(map(str, pci.local_devices))
+        local_devices_str = ", ".join(safe_map(str, pci.local_devices))
         if shards.num_local_shards == pci.axis_size:
           raise ValueError(
               f"Leading axis size of input to pmapped function must equal the "
@@ -1150,7 +1148,7 @@ class PmapExecutable(stages.Executable):
   @profiler.annotate_function
   def call(self, *args):
     # TODO(frostig): do we need to check sharding and sharded avals?
-    arg_avals = map(core.abstractify, args)
+    arg_avals = safe_map(core.abstractify, args)
     check_arg_avals_for_call(self.in_avals, arg_avals,
                              self._unloaded_executable.jaxpr_debug_info)
     return self.unsafe_call(*args)  # pylint: disable=not-callable
@@ -1462,7 +1460,7 @@ def _axis_read(axis_env, axis_name):
 def axis_groups(axis_env: sharding_impls.AxisEnv, name) -> tuple[tuple[int, ...]]:
   if not isinstance(name, (list, tuple)):
     name = (name,)
-  mesh_axes = tuple(unsafe_map(partial(_axis_read, axis_env), name))
+  mesh_axes = tuple(map(partial(_axis_read, axis_env), name))
   trailing_size, ragged = divmod(axis_env.nreps, math.prod(axis_env.sizes))
   assert not ragged
   mesh_spec = axis_env.sizes + (trailing_size,)
@@ -1482,7 +1480,7 @@ def _axis_groups(mesh_spec, mesh_axes):
   groups = np.reshape(
       np.moveaxis(iota, mesh_axes, np.arange(len(mesh_axes))),
       (math.prod(np.take(mesh_spec, mesh_axes)), -1))
-  return tuple(unsafe_map(tuple, groups.T))
+  return tuple(map(tuple, groups.T))
 
 
 # TODO(b/110096942): more efficient gather
@@ -1817,8 +1815,8 @@ def _discharge_refs(
   inout_map = {i: next(count) for i, a in enumerate(jaxpr.in_avals)
                if isinstance(a, AbstractRef)}
   outin_map = {j: i for i, j in inout_map.items()}
-  inout_aliases = tuple(map(inout_map.get, range(len(new_jaxpr.in_avals))))
-  out_mut = list(map(outin_map.get, range(len(new_jaxpr.out_avals))))
+  inout_aliases = tuple(safe_map(inout_map.get, range(len(new_jaxpr.in_avals))))
+  out_mut = list(safe_map(outin_map.get, range(len(new_jaxpr.out_avals))))
   return new_jaxpr, inout_aliases, MutationData(in_mut, out_mut)
 
 @weakref_lru_cache
@@ -1934,8 +1932,8 @@ def _cached_lowering_to_hlo(closed_jaxpr, api_name, fun_name, backend,
   axis_ctx: mlir.AxisContext
 
   if nreps == 1:
-    in_mlir_shardings = map(_to_logical_sharding, global_in_avals, in_shardings)
-    out_mlir_shardings = map(_to_logical_sharding, global_out_avals, out_shardings)
+    in_mlir_shardings = safe_map(_to_logical_sharding, global_in_avals, in_shardings)
+    out_mlir_shardings = safe_map(_to_logical_sharding, global_out_avals, out_shardings)
     replicated_args = [False] * len(global_in_avals)
     axis_ctx = sharding_impls.ShardingContext(num_devices, device_assignment,
                                               abstract_mesh)
@@ -3180,7 +3178,7 @@ class MeshExecutable(stages.Executable):
       ref_avals = self._all_args_info.in_avals
       debug_info = self._all_args_info.debug_info
 
-    all_arg_avals = map(core.abstractify, kept_args)
+    all_arg_avals = safe_map(core.abstractify, kept_args)
     check_arg_avals_for_call(ref_avals, all_arg_avals, debug_info)
     check_array_xla_sharding_layout_match(
         args_after_dce, self._in_shardings, self._xla_in_layouts, debug_info,

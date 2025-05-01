@@ -25,12 +25,9 @@ import types
 from typing import Any, Iterator, Union
 
 from jax._src import core
-from jax._src import util
 from jax._src import source_info_util
 from jax._src.lib import xla_client
-
-map, unsafe_map = util.safe_map, map
-zip, unsafe_zip = util.safe_zip, zip
+from jax._src.util import safe_map, safe_zip
 
 
 def all_eqns(jaxpr: core.Jaxpr) -> Iterator[tuple[core.Jaxpr, core.JaxprEqn]]:
@@ -105,7 +102,7 @@ def var_defs_and_refs(jaxpr: core.Jaxpr):
     read(a, None)
 
   res = [(v, defs[v], refs[v]) for v in defs]
-  subs = map(var_defs_and_refs, core.subjaxprs(jaxpr))
+  subs = safe_map(var_defs_and_refs, core.subjaxprs(jaxpr))
   return [(jaxpr, res), *subs] if subs else (jaxpr, res)
 
 def vars_by_fanout(jaxpr: core.Jaxpr):
@@ -151,7 +148,7 @@ def _pprof_profile(
     if tb is None:
       frames = []
     else:
-      raw_frames = zip(*tb.raw_frames())
+      raw_frames = safe_zip(*tb.raw_frames())
       frames = [loc[(code, lasti)] for code, lasti in raw_frames
                 if source_info_util.is_user_filename(code.co_filename)]
     samples.append({

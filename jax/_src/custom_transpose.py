@@ -39,10 +39,6 @@ source_info_util.register_exclusion(__file__)
 traceback_util.register_exclusion(__file__)
 
 
-map, unsafe_map = util.safe_map, map
-zip, unsafe_zip = util.safe_zip, zip
-
-
 ### bespoke linear_util and api_util deviations
 
 class StoreEqual(lu.Store):

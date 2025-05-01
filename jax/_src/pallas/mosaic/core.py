@@ -27,12 +27,9 @@ from jax._src import config
 from jax._src import core as jax_core
 from jax._src import util
 from jax._src.pallas import core as pallas_core
+from jax._src.util import safe_zip
 import jax.numpy as jnp
 import numpy as np
-
-
-map, unsafe_map = util.safe_map, map
-zip, unsafe_zip = util.safe_zip, zip
 
 partial = functools.partial
 Grid = pallas_core.Grid
@@ -188,7 +185,7 @@ class TensorCoreMesh:
 
   @property
   def shape(self):
-    return collections.OrderedDict(zip(self.axis_names, self.devices.shape))
+    return collections.OrderedDict(safe_zip(self.axis_names, self.devices.shape))
 
   def discharges_effect(self, effect: jax_core.Effect):
     del effect

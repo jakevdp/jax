@@ -53,9 +53,6 @@ from jax._src.util import (
 )
 import jax.numpy as jnp
 
-map, unsafe_map = safe_map, map
-zip, unsafe_zip = safe_zip, zip
-
 Grid = pallas_core.Grid
 TupleGrid = pallas_core.TupleGrid
 GridSpec = pallas_core.GridSpec
@@ -357,7 +354,7 @@ def _batch_with_explicit_loop(
 
   (axis_size,) = {
       arg.shape[dim]
-      for arg, dim in zip(args, dims)
+      for arg, dim in safe_zip(args, dims)
       if dim is not batching.not_mapped
   }
 
@@ -379,7 +376,7 @@ def _batch_with_explicit_loop(
   def body(batch_index: jax.Array, state: list[jax.Array]) -> list[jax.Array]:
     batch_args = []
 
-    for arg, dim in zip(args, dims):
+    for arg, dim in safe_zip(args, dims):
       # If the argument is mapped, extract a slice of size 1 in the mapped
       # dimension at the current index.
       if dim is batching.not_mapped:
@@ -458,12 +455,12 @@ def _pallas_call_batching_rule(
 
   (axis_size,) = {
       get_size(i=i, x=x, d=d)
-      for i, (x, d) in enumerate(zip(args, dims))
+      for i, (x, d) in enumerate(safe_zip(args, dims))
       if d is not batching.not_mapped
   }
   if axis_size == 1:
     # Why are we even vmapping?
-    args = map(_maybe_squeeze_out_bdim, args, dims)
+    args = safe_map(_maybe_squeeze_out_bdim, args, dims)
     out = pallas_call_p.bind(
         *args,
         jaxpr=jaxpr,
@@ -489,7 +486,7 @@ def _pallas_call_batching_rule(
   )
   if all(
       bdim is batching.not_mapped or arg.shape[bdim] == 1
-      for arg, bdim in zip(dynamic_grid_args, dynamic_grid_dims)
+      for arg, bdim in safe_zip(dynamic_grid_args, dynamic_grid_dims)
   ):
     dynamic_grid_args = safe_map(
         _maybe_squeeze_out_bdim, dynamic_grid_args, dynamic_grid_dims
@@ -523,7 +520,7 @@ def _pallas_call_batching_rule(
     # and pretend we were never vmapped over them at all.
     if all(
         bdim is batching.not_mapped or arg.shape[bdim] == 1
-        for arg, bdim in zip(scalar_args, scalar_bdims)
+        for arg, bdim in safe_zip(scalar_args, scalar_bdims)
     ):
       scalar_args = safe_map(_maybe_squeeze_out_bdim, scalar_args, scalar_bdims)
       scalar_bdims = [batching.not_mapped] * len(scalar_args)
@@ -594,7 +591,7 @@ def _pallas_call_batching_rule(
   # operands (the last in the list).
   avals_to_batch = avals[num_index_operands:(len(avals) - num_scratch_operands)]
 
-  batched_block_mappings = map(
+  batched_block_mappings = safe_map(
       partial(
           _batch_block_mapping,
           grid_mapping,
@@ -660,7 +657,7 @@ def _pallas_call_batching_rule(
     batched_grid_mapping = batched_grid_mapping.replace(
         get_grid_indices=lambda indices, maybe_include_mapped_dims: indices,
         local_grid_env=lambda loop_idx, grid: tuple(
-            pallas_core.GridAxis(idx, b) for (idx, b) in zip(loop_idx, grid)
+            pallas_core.GridAxis(idx, b) for (idx, b) in safe_zip(loop_idx, grid)
         ),
     )
 
@@ -681,7 +678,7 @@ def _pallas_call_batching_rule(
       block_mapped_dim_idxs.append(mapped_dim_idxs)
 
     mapped_dim_idx = None
-    for rav, mapped_dim_idxs in zip(ragged_axis_values, block_mapped_dim_idxs):
+    for rav, mapped_dim_idxs in safe_zip(ragged_axis_values, block_mapped_dim_idxs):
       if rav is not None:
         stacked_axis = rav[0]
         if mapped_dim_idx is None:
@@ -710,7 +707,7 @@ def _pallas_call_batching_rule(
     # a very nice one.
 
     var_to_raggedness = {}
-    for invar, rav in zip(jaxpr.invars, ragged_axis_values):
+    for invar, rav in safe_zip(jaxpr.invars, ragged_axis_values):
       var_to_raggedness[invar] = rav
 
     for eqn in jaxpr.eqns:
@@ -737,10 +734,10 @@ def _pallas_call_batching_rule(
             f" {eqn.outvars}. Underlying reason: {e}"
         ) from e
 
-      for invar, rav in zip(eqn.invars, invar_raggedness):  # type: ignore[assignment]
+      for invar, rav in safe_zip(eqn.invars, invar_raggedness):  # type: ignore[assignment]
         if isinstance(invar, jax_core.Var):
           var_to_raggedness[invar] = rav
-      for outvar, rav in zip(eqn.outvars, outvar_raggedness):
+      for outvar, rav in safe_zip(eqn.outvars, outvar_raggedness):
         if isinstance(outvar, jax_core.Var):
           var_to_raggedness[outvar] = rav
 
@@ -874,7 +871,7 @@ def _pallas_call_batching_rule(
     # Important! This allows us to trace the outer kernel with the correct grid
     # to enable accessing the batch program_id.
     with pallas_core.tracing_grid_env(batched_grid_mapping.grid, ()):
-      batched_block_mappings = map(
+      batched_block_mappings = safe_map(
           _rewrite_index_jaxpr, enumerate(batched_block_mappings)
       )
 
@@ -939,7 +936,7 @@ def checkify_pallas_kernel_body_jaxpr(
     grid_mapping: GridMapping) -> tuple[
         jax_core.ClosedJaxpr, tree_util.PyTreeDef, set[checkify.ErrorEffect]]:
   err_vals, err_tree = tree_util.tree_flatten(error)
-  err_vals = map(jax_core.get_aval, err_vals)
+  err_vals = safe_map(jax_core.get_aval, err_vals)
   flat_err_and_in_vals = [*err_vals, *body_jaxpr.in_avals]
 
   with pallas_core.tracing_grid_env(grid_mapping.grid, ()):
@@ -997,7 +994,7 @@ def pallas_call_checkify_oob_grid(error: checkify.Error,
     else:
       local_grid_env = tuple(
           pallas_core.GridAxis(idx, b)
-          for dim, (idx, b) in enumerate(zip(loop_idx, grid))
+          for dim, (idx, b) in enumerate(safe_zip(loop_idx, grid))
           if dim not in grid_mapping.vmapped_dims
       )
     with pallas_core.grid_env(local_grid_env):
@@ -1020,7 +1017,7 @@ def pallas_call_checkify_oob_grid(error: checkify.Error,
                                                   f, (0,), {})),
       jaxpr_in_tree)
   with pallas_core.tracing_grid_env(grid_mapping.grid, ()):
-    avals_in = map(jax_core.get_aval, flat_args)
+    avals_in = safe_map(jax_core.get_aval, flat_args)
     traced_loop, _, consts, () = pe.trace_to_jaxpr_dynamic(
         wrapped_loop, list(avals_in))
     traced_loop = jax_core.ClosedJaxpr(traced_loop, consts)
@@ -1064,7 +1061,7 @@ def pallas_call_checkify_rule(error: checkify.Error,
       closed_jaxpr, enabled_errors, error, grid_mapping)
   error = error._add_placeholder_effects(error_effects)
   err_vals, err_in_tree = jax.tree.flatten(error)
-  shaped_err_avals = map(jax_core.get_aval, err_vals)
+  shaped_err_avals = safe_map(jax_core.get_aval, err_vals)
 
   # Trace the kernel jaxpr to get a checkified jaxpr. This jaxpr will have
   # all enabled errors removed, but have the error as inputs and return values.
@@ -1097,7 +1094,7 @@ def pallas_call_checkify_rule(error: checkify.Error,
         checked_jaxpr.jaxpr, checked_jaxpr.consts, *jaxpr_args)
     output_errors, _ = split_list(result_flat, [num_err_vals])
     # Store new errors back in the error refs.
-    for in_ref, out_ref, error in zip(
+    for in_ref, out_ref, error in safe_zip(
         in_error_refs, out_error_refs, output_errors):
       in_ref[0, 0] = error
       out_ref[0, 0] = error
@@ -1119,8 +1116,8 @@ def pallas_call_checkify_rule(error: checkify.Error,
       return jnp.reshape(arg, (1, 1) + arg.shape)
     else:
       return jnp.array([[arg]])
-  shaped_err_avals = map(_ensure_2d_error_shape, shaped_err_avals)
-  err_vals = map(_ensure_2d_error_shape, err_vals)
+  shaped_err_avals = safe_map(_ensure_2d_error_shape, shaped_err_avals)
+  err_vals = safe_map(_ensure_2d_error_shape, err_vals)
 
   error_memref_aval = [pallas_core.AbstractMemoryRef(
       err_val, pallas_core.MemorySpace.ERROR) for err_val in shaped_err_avals]
@@ -1143,7 +1140,7 @@ def pallas_call_checkify_rule(error: checkify.Error,
   error_block_specs = [pallas_core.BlockSpec(None, None)] * len(shaped_err_avals)
   error_paths, _ = unzip2(tree_util.tree_flatten_with_path(error_block_specs)[0])
   error_origins = tuple(f"errrors[{tree_util.keystr(p)}" for p in error_paths)
-  error_block_mappings = map(
+  error_block_mappings = safe_map(
         partial(
             pallas_core._convert_block_spec_to_block_mapping,
             index_map_avals=grid_mapping.index_map_avals,
@@ -1394,7 +1391,7 @@ def _pallas_call_state_discharge_rule(
           index_map_tree=grid_mapping.index_map_tree,
           grid=grid_mapping.grid,
           mapped_dims=grid_mapping.mapped_dims,
-          ) for ref_aval, block_spec in zip(ref_avals, ref_block_specs)
+          ) for ref_aval, block_spec in safe_zip(ref_avals, ref_block_specs)
   ]
   in_block_mappings, out_block_mappings = split_list(
       grid_mapping.block_mappings, [grid_mapping.num_inputs]

@@ -56,7 +56,7 @@ from jax._src.state import primitives as sp
 from jax._src.util import foreach
 from jax._src.util import merge_lists
 from jax._src.util import partition_list
-from jax._src.util import split_list
+from jax._src.util import split_list, safe_zip
 import jax.numpy as jnp
 import numpy as np
 
@@ -67,7 +67,6 @@ import numpy as np
 _T = TypeVar("_T")
 
 map, unsafe_map = util.safe_map, map
-zip, unsafe_zip = util.safe_zip, zip
 
 NDIndexer = indexing.NDIndexer
 GridMapping = pallas_core.GridMapping
@@ -148,7 +147,7 @@ def _eval_index_map(
         raise ValueError(f"Unsupported block dim type: {type(b)}")
   return tuple(
       _get_start_index(i, b) for i, b in
-      zip(block_indices, block_mapping.block_shape)
+      safe_zip(block_indices, block_mapping.block_shape)
   )
 
 
@@ -393,7 +392,7 @@ def lower_jaxpr_to_triton_ir(
     env[var] = val
 
   if block_infos is not None:
-    for invar, block_info in zip(jaxpr.invars, block_infos):
+    for invar, block_info in safe_zip(jaxpr.invars, block_infos):
       if block_info is not None:
         block_info_env[invar] = block_info
 
@@ -620,13 +619,13 @@ class _Extern:
     return all(
         aval.dtype == jnp.dtype(arg_type)
         or (aval.weak_type and aval.dtype.kind == jnp.dtype(arg_type).kind)
-        for aval, arg_type in zip(avals, self.arg_types)
+        for aval, arg_type in safe_zip(avals, self.arg_types)
     )
 
   def lower(self, ctx: LoweringRuleContext, *args: Sequence[ir.Value]):
     [out_aval] = ctx.avals_out
     bcast_args = []
-    for aval, arg, arg_type in zip(ctx.avals_in, args, self.arg_types):
+    for aval, arg, arg_type in safe_zip(ctx.avals_in, args, self.arg_types):
       bcast_arg = _bcast_to(_ensure_ir_value(arg, aval), out_aval.shape)
       if aval.weak_type and aval.dtype != jnp.dtype(arg_type):
         bcast_arg = _cast(bcast_arg, aval.dtype, jnp.dtype(arg_type))
@@ -655,13 +654,13 @@ class _Fallback:
       return False
     return all(
         jnp.issubdtype(aval.dtype, arg_class)
-        for aval, arg_class in zip(avals, self.arg_classes)
+        for aval, arg_class in safe_zip(avals, self.arg_classes)
     )
 
   def lower(self, ctx: LoweringRuleContext, *args: Sequence[ir.Value]):
     [out_aval] = ctx.avals_out
     bcast_args = []
-    for aval, arg in zip(ctx.avals_in, args):
+    for aval, arg in safe_zip(ctx.avals_in, args):
       bcast_args.append(_bcast_to(_ensure_ir_value(arg, aval), out_aval.shape))
     return self.op(*args)
 
@@ -1871,7 +1870,7 @@ def _compute_offsets_from_indices(
     offsets = _ir_constant(0, offset_eltype)
 
   indexer_iter = iter(indices)
-  for dim_stride, dim_block_size, start_offset in zip(
+  for dim_stride, dim_block_size, start_offset in safe_zip(
       strides, block_info.block_shape, block_info.start_indices
   ):
     match dim_block_size:

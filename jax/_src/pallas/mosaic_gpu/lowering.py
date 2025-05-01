@@ -55,7 +55,7 @@ from jax._src.state import indexing
 from jax._src.state import primitives as sp
 from jax._src.state import types as state_types
 from jax._src.state.types import RefReshaper
-from jax._src.util import foreach
+from jax._src.util import foreach, safe_map, safe_zip
 import jax.experimental.mosaic.gpu as mgpu
 from jax.experimental.mosaic.gpu import core as mgpu_core
 from jax.experimental.mosaic.gpu import profiler as mgpu_profiler
@@ -68,9 +68,6 @@ import numpy as np
 # TODO(slebedev): Enable type checking.
 # mypy: ignore-errors
 # pytype: skip-file
-
-map, unsafe_map = util.safe_map, map
-zip, unsafe_zip = util.safe_zip, zip
 
 partial = functools.partial
 SMEM = gpu_core.SMEM
@@ -467,7 +464,7 @@ def _eval_index_map(
       module_ctx, launch_ctx, block_mapping.index_map_jaxpr.jaxpr, idx
   )
   result = []
-  for i, b in zip(block_indices, block_mapping.block_shape):
+  for i, b in safe_zip(block_indices, block_mapping.block_shape):
     match b:
       case pallas_core.Squeezed() | pallas_core.Element():
         result.append(i)
@@ -737,7 +734,7 @@ def lower_jaxpr_to_module(
     *buffers_gmem, (runtime_smem, runtime_barriers, runtime_tmem) = buffers
 
     grouped_barriers = collections.defaultdict(list)
-    for barrier, barrier_ref in zip(rs.barriers, runtime_barriers):
+    for barrier, barrier_ref in safe_zip(rs.barriers, runtime_barriers):
       grouped_barriers[barrier].append(barrier_ref)
     if runtime_tmem is not None:
       tmem_cols = math.prod(runtime_tmem.shape) // tcgen05.TMEM_ROWS
@@ -806,7 +803,7 @@ def lower_jaxpr_to_module(
   module, new_out_shapes, _, launch_ctx, scratch_arr = (
       mgpu_core._lower_as_gpu_kernel(
           body,
-          grid=tuple(map(operator.mul, parallel_grid, cluster)),
+          grid=tuple(safe_map(operator.mul, parallel_grid, cluster)),
           cluster=cluster,
           block=block,
           in_shapes=in_shapes,
@@ -863,7 +860,7 @@ def _compute_name_stack_updates(
     new_name_stack: list[str]
 ) -> tuple[list[str], list[str]]:
   common_prefix_idx = 0
-  for i, (old, new) in enumerate(unsafe_zip(old_name_stack, new_name_stack)):
+  for i, (old, new) in enumerate(zip(old_name_stack, new_name_stack)):
     if old == new:
       common_prefix_idx = i+1
     else:
@@ -922,7 +919,7 @@ def lower_jaxpr_to_mosaic_gpu(
   last_local_name_stack: list[str] = []
   named_regions = []
   for eqn in jaxpr.eqns:
-    invals = map(read_env, eqn.invars)
+    invals = safe_map(read_env, eqn.invars)
     source_info = eqn.source_info.replace(
         name_stack=module_ctx.name_stack + eqn.source_info.name_stack
     )
@@ -963,7 +960,7 @@ def lower_jaxpr_to_mosaic_gpu(
       except Exception as e:
         if not pallas_call._verbose_errors_enabled():
           raise
-        inval_types = map(lambda t: getattr(t, "type", None), invals)
+        inval_types = safe_map(lambda t: getattr(t, "type", None), invals)
         raise LoweringError(
             f"Exception while lowering eqn:\n  {eqn}\nWith context:\n "
             f" {rule_ctx}\nWith inval types={inval_types}\nIn jaxpr:\n{jaxpr}"
@@ -974,7 +971,7 @@ def lower_jaxpr_to_mosaic_gpu(
         write_env(eqn.outvars[0], outvals)
   while named_regions:  # Drain the name stack.
     named_regions.pop().close()
-  return map(read_env, jaxpr.outvars)
+  return safe_map(read_env, jaxpr.outvars)
 
 
 @register_lowering_rule(primitives.program_id_p, mgpu.LoweringSemantics.Lane)
@@ -1392,7 +1389,7 @@ def _slice_lowering_rule(
   if strides is not None:
     raise NotImplementedError("Strides are not supported.")
 
-  return x[tuple(slice(b, e) for b, e in zip(start_indices, limit_indices))]
+  return x[tuple(slice(b, e) for b, e in safe_zip(start_indices, limit_indices))]
 
 
 @register_lowering_rule(lax.select_n_p, mgpu.LoweringSemantics.Lane)
@@ -1413,7 +1410,7 @@ def _select_n_lowering_rule(ctx: LoweringRuleContext, pred, *cases):
     return pred.select(*reversed(cases))
   else:
     pred = _ensure_ir_value(pred, pred_aval.dtype)
-    cases = [_ensure_ir_value(c, c_aval.dtype) for c, c_aval in zip(cases, cases_avals)]
+    cases = [_ensure_ir_value(c, c_aval.dtype) for c, c_aval in safe_zip(cases, cases_avals)]
     # TODO(bchetioui): support implicit broadcast.
     if any(a.shape != out_aval.shape for a in ctx.avals_in):
       raise NotImplementedError(
@@ -2052,7 +2049,7 @@ def _debug_print_lowering_rule(
         fmt,
         *(
             _ensure_ir_value(arg, aval.dtype)
-            for arg, aval in zip(args, ctx.avals_in)
+            for arg, aval in safe_zip(args, ctx.avals_in)
         ),
     )
   elif len(ctx.avals_in) == 1:
@@ -2191,7 +2188,7 @@ def _run_state_lowering_rule(
 
   should_discharge = []
   new_input_vals = []
-  for arg, v, out_aval in zip(args, jaxpr.invars, ctx.avals_out):
+  for arg, v, out_aval in safe_zip(args, jaxpr.invars, ctx.avals_out):
     aval = v.aval
     if isinstance(aval, gpu_core.WGMMAAbstractAccumulatorRef):
       if ctx.module_ctx.lowering_semantics == mgpu.LoweringSemantics.Warpgroup:
@@ -2227,7 +2224,7 @@ def _run_state_lowering_rule(
   # understand the reasons behind this calling convention, but sharadmv@ has
   # assured me that this is ok.
   outs_it = iter(outs)
-  return [next(outs_it) if d else a for d, a in zip(should_discharge, args)]
+  return [next(outs_it) if d else a for d, a in safe_zip(should_discharge, args)]
 
 
 def _lower_jaxpr_to_for_loop(
@@ -2256,7 +2253,7 @@ def _lower_jaxpr_to_for_loop(
         if ctx.module_ctx.lowering_semantics == mgpu.LoweringSemantics.Lane
         else _ensure_ir_value
     )
-    return [v if a else _ensure(v, av) for a, v, av in zip(is_acc, vals, avals)]
+    return [v if a else _ensure(v, av) for a, v, av in safe_zip(is_acc, vals, avals)]
 
   def loop(loop_index, body_args):
     if has_loop_index:
@@ -2412,7 +2409,7 @@ def _while_lowering_rule(
   _cond_avals, _body_avals, carry_avals = util.split_list(
       ctx.avals_in, [cond_nconsts, body_nconsts]
   )
-  carry = [*map(_ensure, carry, carry_avals)]
+  carry = [*safe_map(_ensure, carry, carry_avals)]
   # Flatten the carry to get a concatenated list of registers from each FA.
   # Note that the treedef is also used below to unflatten the body results.
   flat_carry, carry_treedef = jax.tree.flatten(carry)
@@ -2435,9 +2432,9 @@ def _while_lowering_rule(
     loop_out = lower_jaxpr_to_mosaic_gpu(
         ctx.module_ctx, ctx.launch_ctx, body_jaxpr.jaxpr, body_args
     )
-    loop_out = [*map(_ensure, loop_out, carry_avals)]
+    loop_out = [*safe_map(_ensure, loop_out, carry_avals)]
     if ctx.module_ctx.lowering_semantics == mgpu.LoweringSemantics.Lane:
-      for idx, (carry_fa, out_fa) in enumerate(zip(carry, loop_out)):
+      for idx, (carry_fa, out_fa) in enumerate(safe_zip(carry, loop_out)):
         if _is_acc(carry_fa) != _is_acc(out_fa):
           raise ValueError(
               f"The loop body output has unexpected accumulator type:"
@@ -2464,7 +2461,7 @@ def _cond_lowering_rule(ctx: LoweringRuleContext, index, *args, branches):
 
   def _yielded_values(outs, avals):
     ret = []
-    for out, aval in zip(outs, avals):
+    for out, aval in safe_zip(outs, avals):
       if isinstance(out, mgpu.FragmentedArray):
         ret.append(out)
       else:
@@ -2497,7 +2494,7 @@ def _cond_lowering_rule(ctx: LoweringRuleContext, index, *args, branches):
   # Move the default region to the back.
   regions = regions[1:] + regions[:1]
   treedef = None
-  for branch, region in zip(branches, regions):
+  for branch, region in safe_zip(branches, regions):
     with ir.InsertionPoint(region.blocks.append()):
       outs = lower_jaxpr_to_mosaic_gpu(
           ctx.module_ctx, ctx.launch_ctx, branch.jaxpr, args, consts=branch.consts
@@ -2552,7 +2549,7 @@ def _bitcast_convert_type_lowering_rule(
 @register_lowering_rule(lax.optimization_barrier_p, mgpu.LoweringSemantics.Lane)
 def _optimization_barrier_lowering(ctx: LoweringRuleContext, *args):
   result = mgpu.optimization_barrier(
-      *(_ensure_fa(arg, aval.dtype) for arg, aval in zip(args, ctx.avals_in))
+      *(_ensure_fa(arg, aval.dtype) for arg, aval in safe_zip(args, ctx.avals_in))
   )
   return (result,) if len(ctx.avals_in) == 1 else result
 
@@ -2562,7 +2559,7 @@ def _optimization_barrier_lowering(ctx: LoweringRuleContext, *args):
 )
 def _optimization_barrier_lowering_wg(ctx: LoweringRuleContext, *args):
   result = mgpu.dialect.optimization_barrier([
-      _ensure_ir_value(arg, aval.dtype) for arg, aval in zip(args, ctx.avals_in)
+      _ensure_ir_value(arg, aval.dtype) for arg, aval in safe_zip(args, ctx.avals_in)
   ])
   return (result,) if len(ctx.avals_in) == 1 else result
 

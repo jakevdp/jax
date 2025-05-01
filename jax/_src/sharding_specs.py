@@ -39,8 +39,7 @@ import numpy as np
 from jax._src import config
 from jax._src import util
 from jax._src.lib import pmap_lib
-
-unsafe_map, map = map, util.safe_map
+from jax._src.util import safe_map
 
 NoSharding = pmap_lib.NoSharding
 Chunked = pmap_lib.Chunked
@@ -182,7 +181,7 @@ def pmap_sharding_spec(nrep, axis_size, sharded_shape: Sequence[int],
       sharding=sharding,
       mesh_mapping=itertools.chain(
           [ShardedAxis(sharded_in_axis)], maybe_replicate,
-          map(shift_sharded_axis, pspec.mesh_mapping)))
+          safe_map(shift_sharded_axis, pspec.mesh_mapping)))
   else:
     return ShardingSpec(
       sharding=pspec.sharding,

@@ -62,9 +62,6 @@ from jax._src import xla_metadata as xla_metadata_lib
 
 traceback_util.register_exclusion(__file__)
 
-zip, unsafe_zip = safe_zip, zip
-map, unsafe_map = safe_map, map
-
 config_ext = xla_client._xla.config
 
 
@@ -509,7 +506,7 @@ class Primitive:
     return f'{self.name}'
 
   def bind(self, *args, **params):
-    args = args if self.skip_canonicalization else map(canonicalize_value, args)
+    args = args if self.skip_canonicalization else safe_map(canonicalize_value, args)
     return self._true_bind(*args, **params)
 
   def _true_bind(self, *args, **params):
@@ -602,7 +599,7 @@ def eval_jaxpr(jaxpr: Jaxpr, consts, *args, propagate_source_info=True) -> list[
     else:
       write(eqn.outvars[0], ans)
     clean_up_dead_vars(eqn, env, lu)
-  return map(read, jaxpr.outvars)
+  return safe_map(read, jaxpr.outvars)
 
 def check_avals_context_mesh(avals, prim_name):
   cur_mesh = mesh_lib.get_abstract_mesh()
@@ -1029,7 +1026,7 @@ class EvalTrace(Trace):
       return call_impl_with_key_reuse_checks(primitive, primitive.impl, *args, **params)
     else:
       # TODO(dougalm): delete. this shouldn't be necessary
-      args = map(full_lower, args)
+      args = safe_map(full_lower, args)
       check_eval_args(args)
       return primitive.impl(*args, **params)
 
@@ -1753,7 +1750,7 @@ def canonicalize_shape(shape: Shape, context: str="") -> tuple[Any, ...]:
   if isinstance(shape, int):
     shape = shape,
   try:
-    return tuple(unsafe_map(_canonicalize_dimension, shape))
+    return tuple(map(_canonicalize_dimension, shape))
   except TypeError:
     pass
   raise _invalid_shape_error(shape, context)
@@ -1861,7 +1858,7 @@ def _maybe_modify_sharding(sharding, ndim):
 
 def _check_divisibility(sharding, shape):
   mesh = sharding.mesh
-  for dim, (spec, sh) in enumerate(zip(sharding.spec, shape)):
+  for dim, (spec, sh) in enumerate(safe_zip(sharding.spec, shape)):
     if spec is None:
       continue
     spec = spec if isinstance(spec, tuple) else (spec,)
@@ -1990,7 +1987,7 @@ class ShapedArray(UnshapedArray):
 
 def _get_shape_sharding_str(shape, spec):
   out = []
-  for s1, s2 in zip(shape, spec):
+  for s1, s2 in safe_zip(shape, spec):
     if s2 is None:
       out.append(f"{s1}")
     elif isinstance(s2, tuple):
@@ -2050,7 +2047,7 @@ def standard_insert_pvary(*args):
             else aval.vma for a in args]  # pytype: disable=attribute-error
   out_vma = frozenset.union(*in_vma)
   return [pvary(arg, tuple(n for n in out_vma if n not in src))
-          if out_vma - src else arg for arg, src in zip(args, in_vma)]
+          if out_vma - src else arg for arg, src in safe_zip(args, in_vma)]
 
 def standard_vma_rule(prim_name, *avals, **kwargs) -> frozenset[AxisName]:
   if not config._check_vma.value:
@@ -2318,7 +2315,7 @@ def definitely_equal_shape(s1: Shape, s2: Shape) -> bool:
   be equal at runtime.
   """
   return (len(s1) == len(s2) and
-          all(unsafe_map(definitely_equal, s1, s2)))
+          all(map(definitely_equal, s1, s2)))
 
 def divide_shape_sizes(s1: Shape, s2: Shape) -> DimSize:
   """Returns an integer "i" s.t., i * size(s2) == size(s1).
@@ -2503,7 +2500,7 @@ def evaluate_shape(shape: Shape, dim_vars: Sequence[str],
      a tuple of JAX values corresponding to `shape`, of type
      `dim_value_dtype`.
   """
-  env = dict(zip(dim_vars, dim_values))
+  env = dict(safe_zip(dim_vars, dim_values))
   def eval_one_dim(d: DimSize):
     try:
       return operator.index(d)
@@ -2757,7 +2754,7 @@ custom_typechecks: dict[Primitive, Callable] = {}
 
 def _check_closed_call(_, *in_atoms, call_jaxpr):
   in_avals = [x.aval for x in in_atoms]
-  if not all(map(typecompat, call_jaxpr.in_avals, in_avals)):
+  if not all(safe_map(typecompat, call_jaxpr.in_avals, in_avals)):
     raise JaxprTypeError("Closed call in_avals mismatch")
   return call_jaxpr.out_avals, call_jaxpr.effects
 custom_typechecks[closed_call_p] = _check_closed_call
@@ -2859,7 +2856,7 @@ def _check_jaxpr(
   for eqn_idx, eqn in enumerate(jaxpr.eqns):
     prim = eqn.primitive
     try:
-      in_atoms = map(read, eqn.invars)
+      in_atoms = safe_map(read, eqn.invars)
       in_avals = [x.aval for x in in_atoms]  # use in_atoms for dyn shapes
 
       # Compute the type of the primitive application.
@@ -3000,7 +2997,7 @@ def _check_call(ctx_factory, prim, in_atoms, params):
     if isinstance(aval, DShapedArray):
       aval = aval.update(shape=tuple(env.get(d, d) for d in aval.shape))  # type: ignore
     return aval
-  for v, x in zip(call_jaxpr.invars, in_atoms):
+  for v, x in safe_zip(call_jaxpr.invars, in_atoms):
     if not typecompat(substitute(v.aval), x.aval):
       # TODO(mattjj): vars in error message are confusing b/c of Var.__repr__
       raise JaxprTypeError(f"Call primitive {prim} passes operand {x} of type "
@@ -3043,8 +3040,8 @@ def _check_map(ctx_factory, prim, in_avals, params):
 
   binder_avals = [unmapped_aval(axis_size, in_axis, v.aval)
                   if in_axis is not None else v.aval
-                  for v, in_axis in zip(call_jaxpr.invars, in_axes)]
-  for binder_aval, in_aval in zip(binder_avals, in_avals):
+                  for v, in_axis in safe_zip(call_jaxpr.invars, in_axes)]
+  for binder_aval, in_aval in safe_zip(binder_avals, in_avals):
     if not typecompat(binder_aval, in_aval):
       raise JaxprTypeError(f"Call primitive {prim} passes operand {in_aval} "
                            f"to jaxpr expecting {binder_aval}")
@@ -3055,7 +3052,7 @@ def _check_map(ctx_factory, prim, in_avals, params):
   mapped_out_avals = [v.aval for v in call_jaxpr.outvars]
   out_avals = [unmapped_aval(axis_size, out_axis, aval)
                if out_axis is not None else aval
-               for aval, out_axis in zip(mapped_out_avals, out_axes)]
+               for aval, out_axis in safe_zip(mapped_out_avals, out_axes)]
   return out_avals, filter_named_axis_effects(call_jaxpr.effects, {axis_name})
 
 
@@ -3161,7 +3158,7 @@ class JaxprPpContext:
       # The mismatch can happen if a primitive containing a subjaxpr is invoked
       # with the wrong number of arguments, e.g., when printing an invalid Jaxpr.
       return
-    for for_v, like_v in zip(for_vars, like_vars):
+    for for_v, like_v in safe_zip(for_vars, like_vars):
       if (isinstance(like_v, Var) and
           like_v not in used_like_vars and
           isinstance(for_v, Var) and
@@ -3336,7 +3333,7 @@ def pp_jaxprs(jaxprs: Sequence[ClosedJaxpr | Jaxpr],
   jaxprs = [j.jaxpr if isinstance(j, ClosedJaxpr) else j for j in jaxprs]
   return pp.group(pp.nest(2, pp.concat([
       pp.text('('), pp.brk(""),
-      pp.join(pp.brk(), map(lambda x: pp_jaxpr(x, context, settings), jaxprs))]
+      pp.join(pp.brk(), safe_map(lambda x: pp_jaxpr(x, context, settings), jaxprs))]
     )) + pp.brk("") + pp.text(')')
   )
 
@@ -3353,7 +3350,7 @@ def pp_jaxpr_eqn_range(jaxpr: Jaxpr, lo: int, hi: int, context: JaxprPpContext,
     else:
       if lo != 0:
         pps.append(pp.text('...'))
-      pps.extend(map((lambda e: pp_eqn(e, context, settings)), eqns))
+      pps.extend(safe_map((lambda e: pp_eqn(e, context, settings)), eqns))
       if hi != len(jaxpr.eqns):
         pps.append(pp.text('...'))
     return pp.join(pp.brk("; "), pps)

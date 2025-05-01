@@ -27,8 +27,6 @@ from jax._src.named_sharding import DuplicateSpecError, NamedSharding
 from jax._src.partition_spec import PartitionSpec as P
 from jax._src.util import safe_zip
 
-zip, unsafe_zip = safe_zip, zip
-
 import numpy as np
 
 def _input_dtype(x, *_, **__):
@@ -155,7 +153,7 @@ def standard_multi_result_abstract_eval(
     if isinstance(weak_types, bool):
       weak_types = (weak_types,) * len(out_shapes)
     out_avals = [core.ShapedArray(s, d, weak_type=weak_type, sharding=sh, vma=vma)
-                 for s, d, weak_type, sh, vma in zip(
+                 for s, d, weak_type, sh, vma in safe_zip(
                      out_shapes, out_dtypes, weak_types, out_shardings, out_vmas)]
     core.check_avals_context_mesh(out_avals, prim.name)
     return out_avals
@@ -164,7 +162,7 @@ def standard_multi_result_abstract_eval(
     if isinstance(weak_types, bool):
       weak_types = (weak_types,) * len(out_dtypes)
     return [core.UnshapedArray(dtype, weak_type=weak_type)
-            for dtype, weak_type in zip(out_dtypes, weak_types)]
+            for dtype, weak_type in safe_zip(out_dtypes, weak_types)]
   else:
     raise TypeError(avals, least_specialized)
 

@@ -49,14 +49,11 @@ from jax._src.interpreters import mlir
 from jax._src.lib.mlir import ir
 from jax._src.lib import _jax
 from jax._src.lib import xla_client as xc
+from jax._src.util import safe_zip
 
 
 source_info_util.register_exclusion(__file__)
 traceback_util.register_exclusion(__file__)
-
-
-map, unsafe_map = util.safe_map, map
-zip, unsafe_zip = util.safe_zip, zip
 
 CompilerOptions = dict[str, Union[str, bool]]
 
@@ -455,7 +452,7 @@ class Compiled(Stage):
   def input_layouts(self):
     dll_flat = self._executable._xla_in_layouts
     layouts_flat = [Layout(l, s)
-                    for l, s in zip(dll_flat, self._executable._in_shardings)]
+                    for l, s in safe_zip(dll_flat, self._executable._in_shardings)]
     # Some input layouts got DCE'd
     if self.in_tree.num_leaves > len(layouts_flat):
       iter_layouts_flat = iter(layouts_flat)
@@ -467,7 +464,7 @@ class Compiled(Stage):
   def output_layouts(self):
     dll_flat = self._executable._xla_out_layouts
     layouts_flat = [Layout(l, s)
-                    for l, s in zip(dll_flat, self._executable._out_shardings)]
+                    for l, s in safe_zip(dll_flat, self._executable._out_shardings)]
     return tree_util.tree_unflatten(self.out_tree, layouts_flat)  # pytype: disable=attribute-error
 
   @staticmethod
@@ -591,7 +588,7 @@ class Lowered(Stage):
     out_shardings = self._lowering.compile_args["out_shardings"]
     return self.out_tree.unflatten(
         [OutInfo(o.shape, o.dtype, None if isinstance(s, (UnspecifiedValue, AUTO)) else s)
-         for o, s in zip(out_avals, out_shardings)])
+         for o, s in safe_zip(out_avals, out_shardings)])
 
   def compile(
       self, compiler_options: CompilerOptions | None = None) -> Compiled:

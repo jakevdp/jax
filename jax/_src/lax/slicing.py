@@ -48,9 +48,6 @@ from jax._src.lib.mlir.dialects import hlo
 from jax._src.typing import Array, ArrayLike, Shape
 from jax._src.util import safe_map, safe_zip
 
-map, unsafe_map = safe_map, map
-zip, unsafe_zip = safe_zip, zip
-
 _dtype = partial(dtypes.dtype, canonicalize=True)
 
 
@@ -1312,7 +1309,7 @@ def _slice_shape_rule(operand, *, start_indices, limit_indices, strides):
     msg = ("slice limit_indices must have the same length as start_indices, "
            "got start_indices {} and limit_indices {}.")
     raise TypeError(msg.format(start_indices, limit_indices))
-  if not all(map(operator.ge, operand.shape, limit_indices)):
+  if not all(safe_map(operator.ge, operand.shape, limit_indices)):
     msg = ("slice limit_indices must be less than or equal to operand shape, "
            "got limit_indices {} for operand shape {}.")
     raise TypeError(msg.format(limit_indices, operand.shape))
@@ -1321,11 +1318,11 @@ def _slice_shape_rule(operand, *, start_indices, limit_indices, strides):
            "got start_indices of {}.")
     raise TypeError(msg.format(start_indices))
   if not config.dynamic_shapes.value:
-    if not all(map(operator.ge, limit_indices, start_indices)):
+    if not all(safe_map(operator.ge, limit_indices, start_indices)):
       msg = ("slice limit_indices must be greater than or equal to start_indices,"
             " got start_indices {} and limit_indices {}.")
       raise TypeError(msg.format(start_indices, limit_indices))
-  diff = tuple(map(operator.sub, limit_indices, start_indices))
+  diff = tuple(safe_map(operator.sub, limit_indices, start_indices))
   if strides is None or tuple(strides) == (1,) * len(operand.shape):
     return diff
 
@@ -1338,7 +1335,7 @@ def _slice_shape_rule(operand, *, start_indices, limit_indices, strides):
     msg = "slice strides must be positive, got {}"
     raise TypeError(msg.format(strides))
   return tuple(core.stride_dim(d, window_size=1, window_stride=s)
-               for d, s in zip(diff, strides))
+               for d, s in safe_zip(diff, strides))
 
 def _get_sub_spec_size(mesh, sub_spec):
   if isinstance(sub_spec, tuple):
@@ -1377,15 +1374,15 @@ def _slice_transpose_rule(t, operand, *, start_indices, limit_indices, strides):
   assert ad.is_undefined_primal(operand)
   operand_shape = operand.aval.shape
   if strides is None or np.all(np.equal(strides, 1)):
-    pads = zip(start_indices, np.subtract(operand_shape, limit_indices),
-               (0,) * len(start_indices))
+    pads = safe_zip(start_indices, np.subtract(operand_shape, limit_indices),
+                    (0,) * len(start_indices))
   else:
     real_limits = np.add(
       start_indices,
       np.where(np.array(t.shape) == 0, 0,
                np.add(1, np.multiply(np.subtract(t.shape, 1), strides))))
-    pads = zip(start_indices, np.subtract(operand_shape, real_limits),
-               np.subtract(strides, 1))
+    pads = safe_zip(start_indices, np.subtract(operand_shape, real_limits),
+                    np.subtract(strides, 1))
   result = lax.pad(t, lax._const(t, 0), pads)
   assert result.shape == operand_shape, f"{result.shape=} {operand_shape=}"
   return [result]
@@ -1455,7 +1452,7 @@ def _dynamic_slice_shape_rule(operand, *starts_and_dyn_sizes, slice_sizes):
     msg = ("dynamic_slice slice_sizes must have the same length as "
            "start_indices, got start_indices length {} and slice_sizes {}.")
     raise TypeError(msg.format(len(start_indices), slice_sizes))
-  if not dyn and not all(map(operator.ge, operand.shape, slice_sizes)):
+  if not dyn and not all(safe_map(operator.ge, operand.shape, slice_sizes)):
     msg = ("slice slice_sizes must be less than or equal to operand shape, "
            "got slice_sizes {} for operand shape {}.")
     raise TypeError(msg.format(slice_sizes, operand.shape))
@@ -1505,14 +1502,14 @@ def _batch_dynamic_slice_indices(indices, bdims):
   if len(indices) == 0:
     return np.array([], 'int32'), None
   empty_marker = object()
-  size = next((x.shape[i] for x, i in zip(indices, bdims) if i is not None),
+  size = next((x.shape[i] for x, i in safe_zip(indices, bdims) if i is not None),
               empty_marker)
   if size is empty_marker:
     return lax.concatenate([lax.broadcast(i, (1,)) for i in indices], 0), None
   indices = lax.concatenate(
     [lax.broadcast_in_dim(x, (size, 1),
                           broadcast_dimensions=((0,) if i is not None else ()))
-     for x, i in zip(indices, bdims)],
+     for x, i in safe_zip(indices, bdims)],
     dimension=1)
   return indices, 0
 
@@ -1571,7 +1568,7 @@ def _dynamic_slice_padding_rule(in_avals, out_avals, x, *starts_and_dyn,
   x_aval, start_indices_avals, dyn_avals = util.split_list(in_avals, [1, x.ndim])
   start_indices, dyn = util.split_list(starts_and_dyn, [x.ndim])
   dyn_ = [a.dtype.bound if type(a.dtype) is core.bint else d
-          for a, d in zip(dyn_avals, dyn)]
+          for a, d in safe_zip(dyn_avals, dyn)]
   slice_sizes_ = lax._merge_dyn_shape(slice_sizes, dyn_)
   start_idx = [d.val if type(d) is core.DArray else d for d in start_indices]
   return [dynamic_slice(x, start_idx, slice_sizes_)]
@@ -1617,7 +1614,7 @@ def _dynamic_update_slice_shape_rule(operand, update, *start_indices):
     msg = ("dynamic_update_slice start_indices must have length equal to the "
            "rank of operand, got indices {} for operand shape {}.")
     raise TypeError(msg.format(start_indices, operand.shape))
-  if not all(map(operator.ge, operand.shape, update.shape)):
+  if not all(safe_map(operator.ge, operand.shape, update.shape)):
     msg = ("dynamic_update_slice update shape must be smaller than operand "
            "shape, got update shape {} for operand shape {}.")
     raise TypeError(msg.format(update.shape, operand.shape))
@@ -2048,7 +2045,7 @@ def _gather_batching_rule(batched_args, batch_dims, *, dimension_numbers,
     )
     if isinstance(operand_bdim, batching.RaggedAxis):
       ragged_slice_sizes = batching.bdim_as_shape(operand_bdim, slice_sizes)
-      for orig, fabricated in zip(
+      for orig, fabricated in safe_zip(
           lax._merge_dyn_shape(slice_sizes, dyn_slice_sizes),
           ragged_slice_sizes):
         if isinstance(fabricated, batching.IndexedAxisSize):
@@ -2566,7 +2563,7 @@ def _scatter_batching_rule(scatter_op, batched_args, batch_dims, *,
 
   # move the operand batch dim to the front if it is not None, otherwise create
   # it at the front (so that we can scatter into it)
-  size = next(x.shape[ax] for x, ax in zip(batched_args, batch_dims)
+  size = next(x.shape[ax] for x, ax in safe_zip(batched_args, batch_dims)
               if ax is not None)
   operand = batching.bdim_at_front(operand, operand_bdim, size)
 
@@ -3133,7 +3130,7 @@ def _dynamic_slice_indices(
   if isinstance(allow_negative_indices, bool):
     allow_negative_indices = [allow_negative_indices] * len(start_indices)
   # Loop to correct for negative indices.
-  for i, d, allow_negative_index in zip(
+  for i, d, allow_negative_index in safe_zip(
       start_indices, operand.shape, allow_negative_indices
   ):
     # If i is unsigned, then it cannot be negative.

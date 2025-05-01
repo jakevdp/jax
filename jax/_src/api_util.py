@@ -31,7 +31,7 @@ from jax._src.tree_util import (
     prefix_errors, _replace_nones)
 from jax._src import linear_util as lu
 from jax._src.util import (safe_map, WrapKwArgs, Hashable, HashableFunction,
-                           Unhashable, safe_zip as zip)
+                           Unhashable, safe_zip)
 from jax._src import traceback_util
 
 traceback_util.register_exclusion(__file__)
@@ -280,7 +280,7 @@ def _argnums_partial(_fun: Callable,
                      _fixed_args: Sequence, *dyn_args, **kwargs):
   sentinel = object()
   args = [sentinel] * (len(_fixed_args) + len(dyn_args))
-  for i, arg in zip(_dyn_argnums, dyn_args):
+  for i, arg in safe_zip(_dyn_argnums, dyn_args):
     args[i] = arg
   fixed_args_ = iter(_fixed_args)
   args = [next(fixed_args_).val if x is sentinel else x for x in args]
@@ -338,7 +338,7 @@ def donation_vector(donate_argnums, donate_argnames, in_tree,
     donate = bool(i in donate_argnums)
     res.extend((donate,) * arg.num_leaves)
   if kwargs_tree is not None:
-    for key, val in zip(kwargs_tree.node_data()[1], kwargs_tree.children()):  # type: ignore
+    for key, val in safe_zip(kwargs_tree.node_data()[1], kwargs_tree.children()):  # type: ignore
       donate = key in donate_argnames
       res.extend((donate,) * val.num_leaves)
   return tuple(res)
@@ -744,7 +744,7 @@ _class_with_attrs: set[type] = set()
 def _check_no_aliased_ref_args(dbg: core.DebugInfo, avals, args):
   assert config.mutable_array_checks.value
   refs: dict[int, int] = {}
-  for i, (a, x) in enumerate(zip(avals, args)):
+  for i, (a, x) in enumerate(safe_zip(avals, args)):
     if (isinstance(a, AbstractRef) and
         (dup_idx := refs.setdefault(id(core.get_referent(x)), i)) != i):
       raise ValueError(

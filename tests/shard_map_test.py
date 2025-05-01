@@ -54,9 +54,6 @@ from jax.experimental.custom_partitioning import custom_partitioning
 config.parse_flags_with_absl()
 jtu.request_cpu_devices(8)
 
-map, unsafe_map = safe_map, map
-zip, unsafe_zip = safe_zip, zip
-
 # Helper for some tests.
 def create_inputs(a_sharding, b_sharding):
   mesh = jtu.create_mesh((2, 2, 2), ('x', 'y', 'z'))
@@ -1299,9 +1296,9 @@ class ShardMapTest(jtu.JaxTestCase):
     rand  = lambda v: rand_(v.aval.shape, v.aval.dtype)
     consts = [rand(v) for v in jaxpr.constvars]
     inputs = [rand(v) for v in jaxpr.invars   ]
-    inputs_dce = [x for x, used in zip(inputs, used_inputs) if used]
+    inputs_dce = [x for x, used in safe_zip(inputs, used_inputs) if used]
     full_outs = core.eval_jaxpr(jaxpr    , consts, *inputs)
-    expected_outs_dce = [y for y, used in zip(full_outs, used_outputs) if used]
+    expected_outs_dce = [y for y, used in safe_zip(full_outs, used_outputs) if used]
     outs = core.eval_jaxpr(jaxpr_dce, consts, *inputs_dce)
     self.assertAllClose(outs, expected_outs_dce)
 
@@ -3186,11 +3183,11 @@ def shmap_reference(
   ) -> Callable:
   def f_shmapped(*args):
     outs = jax.tree.map(lambda y: jnp.zeros(y.shape, y.dtype), out_types)
-    getters = [make_indexer(mesh, s, x) for s, x in zip(in_specs, args)]
+    getters = [make_indexer(mesh, s, x) for s, x in safe_zip(in_specs, args)]
     putters = jax.tree.map(partial(make_indexer, mesh), out_specs, outs)
     for idx in it.product(*map(range, mesh.shape.values())):
-      args_shards = [x[indexer(idx)] for x, indexer in zip(args, getters)]
-      assert all(x.shape == r.shape for x, r in zip(args_shards, body_in_types))
+      args_shards = [x[indexer(idx)] for x, indexer in safe_zip(args, getters)]
+      assert all(x.shape == r.shape for x, r in safe_zip(args_shards, body_in_types))
       out_shards = f(*args_shards)
       assert jax.tree.all(jax.tree.map(lambda y, r: y.shape == r.shape,
                                                  out_shards, body_out_types))
@@ -3202,7 +3199,7 @@ def shmap_reference(
 def make_indexer(mesh: Mesh, spec: P, x: Any
                  ) -> Callable[[tuple[int, ...]], tuple[slice, ...]]:
   block_shape = [d // math.prod(mesh.shape[ax] for ax in (elt or ()))
-                 for d, elt in zip(x.shape, spec)]
+                 for d, elt in safe_zip(x.shape, spec)]
   def indexer(idx):
     starts = [0 if el is None else
               idx[list(mesh.shape).index(el)] if type(el) is not tuple else
@@ -3210,7 +3207,7 @@ def make_indexer(mesh: Mesh, spec: P, x: Any
                   * math.prod(mesh.shape[e] for e in el[i+1:]) for i in range(len(el)))
               for el in spec]
     return tuple(slice(start * size, (start + 1) * size)
-                 for start, size in zip(starts, block_shape))
+                 for start, size in safe_zip(starts, block_shape))
   return indexer
 
 
@@ -3230,7 +3227,7 @@ def sample_shmap() -> Chooser:
   spec = yield fun_specs
   mesh_shape = yield mesh_shapes
   axis_names = ('i', 'j', 'k', 'l')[:len(mesh_shape)]
-  mesh = SimpleNamespace(shape=dict(zip(axis_names, mesh_shape)),
+  mesh = SimpleNamespace(shape=dict(safe_zip(axis_names, mesh_shape)),
                          axis_names=axis_names)
   in_types = (tys for tys in it.product(input_shapes, repeat=spec.num_inputs)
               if not spec.valid_types or spec.valid_types(*tys))
@@ -3286,7 +3283,7 @@ def make_in_specs(mesh: MeshDuck, in_types: Sequence[ShapeDtypeDuck]
   for ty in in_types:
     pair = yield from make_in_spec(mesh, ty)
     pairs.append(pair)
-  return tuple(zip(*pairs))
+  return tuple(safe_zip(*pairs))
 
 def make_in_spec(mesh: Mesh, in_type_base: ShapeDtypeDuck) -> Chooser:
   assert len(list(powerset(mesh.shape)))
@@ -3298,7 +3295,7 @@ def make_in_spec(mesh: Mesh, in_type_base: ShapeDtypeDuck) -> Chooser:
 
 def dilate(mesh: Mesh, spec: P, shape: ShapeDtypeDuck) -> ShapeDtypeDuck:
   new_shape = tuple(d * math.prod(mesh.shape[ax] for ax in (elt or ()))
-                    for d, elt in zip(shape.shape, spec))
+                    for d, elt in safe_zip(shape.shape, spec))
   return jax.ShapeDtypeStruct(new_shape, shape.dtype)
 
 def make_out_specs(
@@ -3310,7 +3307,7 @@ def make_out_specs(
     return out_spec
   else:
     out_specs = []
-    for ty, rep in zip(out_types, out_reps):
+    for ty, rep in safe_zip(out_types, out_reps):
       out_spec = yield from make_out_spec(mesh, ty, rep)  # type: ignore
       out_specs.append(out_spec)
     return tuple(out_specs)
@@ -3329,7 +3326,7 @@ T = TypeVar('T')
 def partitions(s: Sequence[T], k: int) -> Iterator[list[list[T]]]:
   for indices in it.product(range(k), repeat=len(s)):
     outs: list[list[T]] = [[] for _ in range(k)]
-    for i, elt in zip(indices, s):
+    for i, elt in safe_zip(indices, s):
       outs[i].append(elt)
     yield outs
 
@@ -3344,7 +3341,7 @@ Arr = Any
 def sample_shmap_batched(bdim_size: int) -> Chooser:
   name, *shmap_specs, args, ref = yield from sample_shmap()
   bdims = yield all_bdims(*map(op.attrgetter('shape'), args))
-  batch_args = map(partial(batchify_arg, bdim_size), bdims, args)
+  batch_args = safe_map(partial(batchify_arg, bdim_size), bdims, args)
   return name + f'_vmap_{bdims}', bdims, *shmap_specs, batch_args, ref
 
 def all_bdims(*shapes: tuple[int, ...]
@@ -3367,7 +3364,7 @@ def args_slicer(args: Sequence[Arr], bdims: Sequence[int | None]
       return lambda _: x
     else:
       return lambda i: x.take(indices=i, axis=bdim)
-  slicers = map(slicer, args, bdims)
+  slicers = safe_map(slicer, args, bdims)
   return lambda i: [sl(i) for sl in slicers]
 
 
@@ -3381,7 +3378,7 @@ class ShardMapSystematicTest(jtu.JaxTestCase):
       sample(jtu.NUM_GENERATED_CASES.value, sample_shmap))
   def test_eager_against_ref(self, fun, mesh, _, in_specs, out_specs, args, ref):
     mesh = self.make_mesh(mesh)
-    args = map(jnp.array, args)
+    args = safe_map(jnp.array, args)
     out = shard_map(fun, mesh=mesh, in_specs=in_specs,
                     out_specs=out_specs)(*args)
     expected = ref(fun, mesh, in_specs, out_specs)(*args)
@@ -3391,7 +3388,7 @@ class ShardMapSystematicTest(jtu.JaxTestCase):
       sample(jtu.NUM_GENERATED_CASES.value, sample_shmap))
   def test_jit_against_ref(self, fun, mesh, _, in_specs, out_specs, args, ref):
     mesh = self.make_mesh(mesh)
-    args = map(jnp.array, args)
+    args = safe_map(jnp.array, args)
     out = jax.jit(shard_map(fun, mesh=mesh, in_specs=in_specs,
                             out_specs=out_specs))(*args)
     expected = ref(fun, mesh, in_specs, out_specs)(*args)
@@ -3405,7 +3402,7 @@ class ShardMapSystematicTest(jtu.JaxTestCase):
   @jax.default_matmul_precision("float32")
   def test_grads(self, fun, mesh, jit, in_specs, out_specs, args, _, check_rep):
     mesh = self.make_mesh(mesh)
-    args = map(jnp.array, args)
+    args = safe_map(jnp.array, args)
     f = shard_map(fun, mesh=mesh, in_specs=in_specs,
                   out_specs=out_specs, check_vma=check_rep)
     if jit:
@@ -3436,7 +3433,7 @@ class ShardMapSystematicTest(jtu.JaxTestCase):
              partial(sample_shmap_batched, 5)))
   def test_vmap(self, bdims, fun, mesh, jit, in_specs, out_specs, args, ref):
     mesh = self.make_mesh(mesh)
-    args = map(jnp.array, args)
+    args = safe_map(jnp.array, args)
 
     f = shard_map(fun, mesh=mesh, in_specs=in_specs, out_specs=out_specs)
     if jit:
@@ -3449,7 +3446,7 @@ class ShardMapSystematicTest(jtu.JaxTestCase):
     if tree_util.treedef_is_strict_leaf(treedef):
       expected = jnp.stack(expected_slices)
     else:
-      slices = map(jnp.stack, zip(*expected_slices))
+      slices = safe_map(jnp.stack, safe_zip(*expected_slices))
       expected = jax.tree.unflatten(treedef, slices)
     tol = 1e-2 if jtu.test_device_matches(['tpu']) else None
     self.assertAllClose(ans, expected, check_dtypes=False, atol=tol, rtol=tol)
@@ -3459,7 +3456,7 @@ class ShardMapSystematicTest(jtu.JaxTestCase):
              partial(sample_shmap_batched, 5)))
   def test_vmap_closure(self, bdims, fun, mesh, jit, in_specs, out_specs, args, _):
     mesh = self.make_mesh(mesh)
-    args = map(jnp.array, args)
+    args = safe_map(jnp.array, args)
 
     no_sharding = [all(elt is None for elt in spec) for spec in in_specs]
     args, closed_over_args = partition_list(no_sharding, args)
@@ -3488,7 +3485,7 @@ class ShardMapSystematicTest(jtu.JaxTestCase):
     if tree_util.treedef_is_strict_leaf(treedef):
       expected = jnp.stack(expected_slices)
     else:
-      slices = map(jnp.stack, zip(*expected_slices))
+      slices = safe_map(jnp.stack, safe_zip(*expected_slices))
       expected = jax.tree.unflatten(treedef, slices)
     tol = 1e-2 if jtu.test_device_matches(['gpu', 'tpu']) else None
     self.assertAllClose(ans, expected, check_dtypes=False, atol=tol, rtol=tol)

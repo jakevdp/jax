@@ -50,7 +50,6 @@ from jax._src.util import safe_map, safe_zip
 ## JAX utilities
 
 map, unsafe_map = safe_map, map
-zip, unsafe_zip = safe_zip, zip
 traceback_util.register_exclusion(__file__)
 
 ## get/swap/addupdate implementations
@@ -438,11 +437,11 @@ ad.primitive_transposes[addupdate_p] = addupdate_transpose
 
 def _state_partial_eval_custom(prim, saveable, unks_in, inst_in, eqn):
   if any(unks_in):
-    res = [v for v, inst in zip(eqn.invars, inst_in) if not inst]
+    res = [v for v, inst in safe_zip(eqn.invars, inst_in) if not inst]
     return None, eqn, [True] * len(eqn.outvars), [True] * len(eqn.outvars), res
   elif saveable(prim, *[var.aval for var in eqn.invars], **eqn.params):
     return eqn, None, [False] * len(eqn.outvars), [False] * len(eqn.outvars), []
-  res = [v for v, inst in zip(eqn.invars, inst_in) if not inst]
+  res = [v for v, inst in safe_zip(eqn.invars, inst_in) if not inst]
   return eqn, eqn, [False] * len(eqn.outvars), [True] * len(eqn.outvars), res
 
 pe.partial_eval_jaxpr_custom_rules[get_p] = partial(_state_partial_eval_custom,
@@ -504,7 +503,7 @@ def _batch_indexer(
   indices_dims = dims.indices
   new_indices: list[Array | indexing.Slice | int] = []
   new_integer_indexer_shape = (axis_size, *indexer.int_indexer_shape)
-  for idx, dim in zip(indices, indices_dims):
+  for idx, dim in safe_zip(indices, indices_dims):
     if idx_is_batched:
       # If at least one of the idx is batched, we broadcast them all and move the
       # batch dim to the front.
@@ -556,7 +555,7 @@ def _batch_indexer(
   )
 
 def _get_vmap(batched_args, batched_dims, *, tree):
-  axis_size, = {x.shape[d] for x, d in zip(batched_args, batched_dims)
+  axis_size, = {x.shape[d] for x, d in safe_zip(batched_args, batched_dims)
                 if d is not batching.not_mapped}
   ref, *flat_idxs = batched_args
   ref_dim, *flat_idx_dims = batched_dims
@@ -570,7 +569,7 @@ def _get_vmap(batched_args, batched_dims, *, tree):
   # TODO(sharadmv): handle vmap of multiple indexers
   new_indexers = tuple(_batch_indexer(indexer, dims, axis_size,
                                   ref.shape, ref_dim, idx_is_batched)
-                     for indexer, dims in zip(indexers, indexers_dims))
+                     for indexer, dims in safe_zip(indexers, indexers_dims))
   flat_indexers, tree = tree_util.tree_flatten(new_indexers)
 
   is_int_indexing, _, _ = indexing.unpack_ndindexer(indexers[0])
@@ -607,7 +606,7 @@ def _get_vmap(batched_args, batched_dims, *, tree):
 batching.primitive_batchers[get_p] = _get_vmap
 
 def _swap_vmap(batched_args, batched_dims, *, tree):
-  axis_size, = {x.shape[d] for x, d in zip(batched_args, batched_dims)
+  axis_size, = {x.shape[d] for x, d in safe_zip(batched_args, batched_dims)
                 if d is not batching.not_mapped}
   ref, val, *flat_idxs = batched_args
   ref_dim, val_dim, *flat_idx_dims = batched_dims
@@ -623,7 +622,7 @@ def _swap_vmap(batched_args, batched_dims, *, tree):
   # TODO(sharadmv): handle vmap of multiple indexers
   new_indexers = tuple(_batch_indexer(indexer, dims, axis_size,
                                   ref.shape, ref_dim, idx_is_batched)
-                     for indexer, dims in zip(indexers, indexers_dims))
+                     for indexer, dims in safe_zip(indexers, indexers_dims))
   flat_indexers, tree = tree_util.tree_flatten(new_indexers)
 
   is_int_indexing, _, _ = indexing.unpack_ndindexer(indexers[0])
@@ -677,7 +676,7 @@ def _swap_vmap(batched_args, batched_dims, *, tree):
 batching.primitive_batchers[swap_p] = _swap_vmap
 
 def _addupdate_vmap(batched_args, batched_dims, *, tree):
-  axis_size, = {x.shape[d] for x, d in zip(batched_args, batched_dims)
+  axis_size, = {x.shape[d] for x, d in safe_zip(batched_args, batched_dims)
                 if d is not batching.not_mapped}
   ref, val, *flat_idxs = batched_args
   ref_dim, val_dim, *flat_idx_dims = batched_dims
@@ -693,7 +692,7 @@ def _addupdate_vmap(batched_args, batched_dims, *, tree):
   # TODO(sharadmv): handle vmap of multiple indexers
   new_indexers = tuple(_batch_indexer(indexer, dims, axis_size,
                                   ref.shape, ref_dim, idx_is_batched)
-                     for indexer, dims in zip(indexers, indexers_dims))
+                     for indexer, dims in safe_zip(indexers, indexers_dims))
   flat_indexers, tree = tree_util.tree_flatten(new_indexers)
 
   is_int_indexing, _, _ = indexing.unpack_ndindexer(indexers[0])

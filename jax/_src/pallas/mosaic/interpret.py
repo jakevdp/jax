@@ -51,7 +51,6 @@ import numpy as np
 
 
 map, unsafe_map = safe_map, map
-zip, unsafe_zip = safe_zip, zip
 
 Grid = pallas_core.Grid
 TupleGrid = pallas_core.TupleGrid
@@ -1192,7 +1191,7 @@ def _interpret_jaxpr(jaxpr, *args, mesh, compiler_params, interpret_params):
 
         out = _interpret(eqn.params['jaxpr'], *deferred_invals(), *allocs)
 
-        for a, v in zip(allocs, eqn.params['jaxpr'].invars):
+        for a, v in safe_zip(allocs, eqn.params['jaxpr'].invars):
           if v.aval.memory_space == mosaic_core.TPUMemorySpace.SEMAPHORE:
             # TODO(jburnim): De-allocate semaphores.
             # callback.io_callback(
@@ -1369,7 +1368,7 @@ def _compute_start_indices(
   ret = jnp.array(
       tuple(
           _get_start_index(i, b)
-          for i, b in zip(block_indices, block_mapping.block_shape)
+          for i, b in safe_zip(block_indices, block_mapping.block_shape)
       ),
       dtype=jnp.int32,
   )
@@ -1378,7 +1377,7 @@ def _compute_start_indices(
 def _get_next_indices(grid, indices):
   next_indices = []
   carry = True
-  for dim_size, index in reversed(list(zip(grid, indices))):
+  for dim_size, index in reversed(list(safe_zip(grid, indices))):
     i = jnp.where(carry, index + 1, index)
     carry = dim_size == i
     next_indices.append(jnp.where(carry, 0, i))
@@ -1433,7 +1432,7 @@ def _get_randomized_grid_coordinates(
 
   key = jax.random.key(random_seed or 0)
   grid_point_coordinates = []
-  for dim_size, parallel_dim in zip(grid, parallel_semantics_per_dim):
+  for dim_size, parallel_dim in safe_zip(grid, parallel_semantics_per_dim):
     if parallel_dim:
       # The size of a dimension with `parallel` semantics must be known at Jax
       # trace time. This ensures that the arguments to `jnp.arange` and
@@ -1475,7 +1474,7 @@ def _get_grid_point(
     corresponding to the specified `loop_indices`.
   """
   grid_point = []
-  for li, coords in zip(loop_indices, grid_point_coordinates):
+  for li, coords in safe_zip(loop_indices, grid_point_coordinates):
     grid_point.append(li if jnp.size(coords) == 0 else coords[li])
   return jnp.array(grid_point, dtype=np.int32)
 
@@ -1508,10 +1507,10 @@ def _pad_to_block_dimension(value, block_shape, interpret_params):
     A padded array.
   """
   padded_shape = tuple(
-      ((v - 1) // b + 1) * b for v, b in zip(value.shape, block_shape)
+      ((v - 1) // b + 1) * b for v, b in safe_zip(value.shape, block_shape)
   )
   if padded_shape != value.shape:
-    pad_width = tuple((0, a-b) for a, b in zip(padded_shape, value.shape))
+    pad_width = tuple((0, a-b) for a, b in safe_zip(padded_shape, value.shape))
     pad_value = _uninitialized_value((), value.dtype, interpret_params)
     value = jnp.pad(value, pad_width, constant_values=pad_value)
   return value
@@ -1572,7 +1571,7 @@ def interpret_pallas_call(
   num_inputs = grid_mapping.num_inputs
   input_args = [
       _pad_to_block_dimension(a, bs, interpret_params)
-      for a, bs in zip(input_args, block_shapes[:num_inputs])
+      for a, bs in safe_zip(input_args, block_shapes[:num_inputs])
   ]
 
   # Allocate HBM buffers for pallas_call inputs.
@@ -1623,7 +1622,7 @@ def interpret_pallas_call(
   # Allocate buffers for non-HBM kernel arguments (e.g., scalars, inputs,
   # outputs, scratch).
   scalar_buffer_ids = []
-  for var, val in zip(jaxpr.invars[grid_mapping.slice_index_ops], scalars):
+  for var, val in safe_zip(jaxpr.invars[grid_mapping.slice_index_ops], scalars):
     assert var.aval.shape == val.shape
     assert var.aval.dtype == val.dtype
     scalar_buffer_ids.append(callback.io_callback(
@@ -1693,7 +1692,7 @@ def interpret_pallas_call(
     else:
       return tuple(
           pallas_core.GridAxis(idx, b)
-          for dim, (idx, b) in enumerate(zip(loop_idx, grid))
+          for dim, (idx, b) in enumerate(safe_zip(loop_idx, grid))
           if dim not in grid_mapping.vmapped_dims
       )
 
@@ -1755,7 +1754,7 @@ def interpret_pallas_call(
         transform = indexing.NDIndexer(
             indices=tuple(
                 indexing.ds(st, sz) if not iid else st
-                for st, sz, iid in zip(
+                for st, sz, iid in safe_zip(
                     cur_start_indices[index],
                     block_shapes[index],
                     is_squeeze_dim[index],
@@ -1823,7 +1822,7 @@ def interpret_pallas_call(
         transform = indexing.NDIndexer(
             indices=tuple(
                 indexing.ds(st, sz) if not iid else st
-                for st, sz, iid in zip(
+                for st, sz, iid in safe_zip(
                     cur_start_indices[num_inputs + index],
                     block_shapes[num_inputs + index],
                     is_squeeze_dim[num_inputs + index],
@@ -1905,7 +1904,7 @@ def interpret_pallas_call(
               tuple(indexing.ds(0, s) for s in val.shape),
               output_buffer_shape),),
           ordered=True)
-      for val, output_buffer_id, output_buffer_shape in zip(
+      for val, output_buffer_id, output_buffer_shape in safe_zip(
           output_vals, output_buffer_ids, output_buffer_shapes)
   ]
 

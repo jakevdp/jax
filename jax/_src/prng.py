@@ -56,9 +56,6 @@ from jax._src.sharding_impls import (
 from jax._src.typing import Array
 from jax._src.util import safe_map, safe_zip
 
-map, unsafe_map = safe_map, map
-zip, unsafe_zip = safe_zip, zip
-
 Device = xc.Device
 Shard = Any  # TODO(jakevdp): fix circular imports and import Shard
 Shape = tuple[int, ...]
@@ -487,7 +484,7 @@ def key_array_shard_arg_handler(xs: Sequence[PRNGKeyArray], shardings, layouts,
                                 copy_semantics):
   arrs = [x._base_array for x in xs]
   phys_shardings = [physical_sharding(x.aval, sharding)
-                    for x, sharding in zip(xs, shardings)]
+                    for x, sharding in safe_zip(xs, shardings)]
   # TODO(yashkatariya): `layouts` should be converted to physical layouts.
   return pxla.shard_args(phys_shardings, layouts, copy_semantics, arrs)
 
@@ -534,7 +531,7 @@ def iterated_vmap_binary_bcast(shape1, shape2, f):
     else:
       return lambda x, y: iterated_vmap_unary(ndim1, lambda x: f(x, y))(x)
   assert len(shape1) == len(shape2)
-  for sz1, sz2 in reversed(zip(shape1, shape2)):
+  for sz1, sz2 in reversed(safe_zip(shape1, shape2)):
     if sz1 == sz2:
       f = api.vmap(f, out_axes=0)
     else:
@@ -579,7 +576,7 @@ def random_seed_lowering(ctx, seeds, *, impl):
   seed_lowering = mlir.lower_fun(seed, multiple_results=False)
   return mlir.delegate_lowering(
       ctx, seed_lowering, seeds,
-      avals_out=map(core.physical_aval, ctx.avals_out))
+      avals_out=safe_map(core.physical_aval, ctx.avals_out))
 
 mlir.register_lowering(random_seed_p, random_seed_lowering)
 
@@ -617,7 +614,7 @@ def random_split_lowering(ctx, keys, *, shape):
   return mlir.delegate_lowering(
       ctx, split_lowering, keys,
       avals_in=[core.physical_aval(aval)],
-      avals_out=map(core.physical_aval, ctx.avals_out))
+      avals_out=safe_map(core.physical_aval, ctx.avals_out))
 
 mlir.register_lowering(random_split_p, random_split_lowering)
 
@@ -660,7 +657,7 @@ def random_fold_in_lowering(ctx, keys, msgs):
   return mlir.delegate_lowering(
       ctx, fold_in_lowering, keys, msgs,
       avals_in=[core.physical_aval(keys_aval), msgs_aval],
-      avals_out=map(core.physical_aval, ctx.avals_out))
+      avals_out=safe_map(core.physical_aval, ctx.avals_out))
 
 mlir.register_lowering(random_fold_in_p, random_fold_in_lowering)
 
@@ -1033,7 +1030,7 @@ def bcast_iotas_to_reshaped_iota(
     shape: core.Shape,
     iotas: Sequence[ir.Value]) -> ir.Value:
   strides: core.Shape = (*(np.cumprod(shape[1:][::-1])[::-1]), 1)
-  return reduce(add, [mul(s, i) for i, s in zip(iotas, strides)])
+  return reduce(add, [mul(s, i) for i, s in safe_zip(iotas, strides)])
 
 def iota_2x32_shape_lowering(ctx, *, shape):
   aval_out, _ = ctx.avals_out
@@ -1118,7 +1115,7 @@ def threefry_2x32(keypair, count):
 
 
 def threefry_split(key: typing.Array, shape: Shape) -> typing.Array:
-  shape = tuple(unsafe_map(core.concrete_dim_or_error, shape))
+  shape = tuple(map(core.concrete_dim_or_error, shape))
   return _threefry_split(key, shape)
 
 @partial(jit, static_argnums=(1,))

@@ -37,13 +37,10 @@ from jax._src.pallas.fuser import block_spec
 from jax._src.pallas.fuser.fusible import fusible_p
 from jax._src.state import discharge as state_discharge
 from jax._src.state import primitives as state_primitives
-from jax._src.util import foreach
+from jax._src.util import foreach, safe_map
 
 # TODO(sharadmv): Enable type checking.
 # mypy: ignore-errors
-
-map, unsafe_map = util.safe_map, map
-zip, unsafe_zip = util.safe_zip, zip
 
 T = TypeVar("T")
 
@@ -222,7 +219,7 @@ def physicalize_interp(
   foreach(write_env, jaxpr.invars, args)
 
   for eqn in jaxpr.eqns:
-    invals = list(map(read_env, eqn.invars))
+    invals = safe_map(read_env, eqn.invars)
     avals_in = tuple(x.aval for x in eqn.invars)
     name_stack = (
         source_info_util.current_name_stack() + eqn.source_info.name_stack
@@ -251,7 +248,7 @@ def physicalize_interp(
     else:
       write_env(eqn.outvars[0], outvals)
 
-  return map(read_env, jaxpr.outvars)
+  return safe_map(read_env, jaxpr.outvars)
 
 
 def _phys_find_rule(primitive, types: Sequence[dtypes.DType]):

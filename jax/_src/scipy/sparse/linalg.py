@@ -28,7 +28,7 @@ from jax.tree_util import (tree_leaves, tree_map, tree_structure,
 
 from jax._src import dtypes
 from jax._src.lax import lax as lax_internal
-from jax._src.util import safe_map as map
+from jax._src.util import safe_map
 
 
 _dot = partial(jnp.dot, precision=lax.Precision.HIGHEST)
@@ -64,7 +64,7 @@ def _vdot_tree(x, y):
 
 def _norm(x):
   xs = tree_leaves(x)
-  return jnp.sqrt(sum(map(_vdot_real_part, xs, xs)))
+  return jnp.sqrt(sum(safe_map(_vdot_real_part, xs, xs)))
 
 
 def _mul(scalar, tree):
@@ -186,7 +186,7 @@ def _bicgstab_solve(A, b, x0=None, *, maxiter, tol=1e-5, atol=0.0, M=_identity):
 
 
 def _shapes(pytree):
-  return map(jnp.shape, tree_leaves(pytree))
+  return safe_map(jnp.shape, tree_leaves(pytree))
 
 
 def _isolve(_isolve_solve, A, b, x0=None, *, tol=1e-5, atol=0.0,
@@ -221,7 +221,7 @@ def _isolve(_isolve_solve, A, b, x0=None, *, tol=1e-5, atol=0.0,
   # real-valued positive-definite linear operators are symmetric
   def real_valued(x):
     return not issubclass(x.dtype.type, np.complexfloating)
-  symmetric = all(map(real_valued, tree_leaves(b))) \
+  symmetric = all(safe_map(real_valued, tree_leaves(b))) \
     if check_symmetric else False
   x = lax.custom_linear_solve(
       A, b, solve=isolve_solve, transpose_solve=isolve_solve,

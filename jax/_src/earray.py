@@ -22,10 +22,7 @@ from jax._src import tree_util
 from jax._src import sharding_impls
 from jax._src.interpreters import pxla
 from jax._src.interpreters import xla
-from jax._src.util import safe_zip, safe_map
-
-map, unsafe_map = safe_map, map
-zip, unsafe_zip = safe_zip, zip
+from jax._src.util import safe_zip
 
 # EArray is an Array that can contain extended dtypes.
 class EArray(basearray.Array):
@@ -110,7 +107,7 @@ class EArray(basearray.Array):
 def _earray_shard_arg_handler(xs, shardings, layouts, copy_semantics):
   arrs = [x._data for x in xs]
   phys_shardings = [sharding_impls.physical_sharding(x.aval, sharding)
-                    for x, sharding in zip(xs, shardings)]
+                    for x, sharding in safe_zip(xs, shardings)]
   # TODO(yashkatariya): `layouts` should be converted to physical layouts.
   return pxla.shard_args(phys_shardings, layouts, copy_semantics, arrs)
 pxla.shard_arg_handlers[EArray] = _earray_shard_arg_handler

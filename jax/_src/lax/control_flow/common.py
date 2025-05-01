@@ -32,8 +32,6 @@ from jax._src.interpreters import partial_eval as pe
 from jax.tree_util import tree_map, tree_unflatten, keystr, PyTreeDef
 from jax._src.tree_util import equality_errors_pytreedef
 
-map, unsafe_map = safe_map, map
-
 effects.control_flow_allowed_effects.add_type(lax.InOutFeedEffect)
 
 
@@ -95,7 +93,7 @@ def _initial_style_jaxprs_with_common_consts(
     return [], [], []
 
   jaxprs, all_consts, all_out_trees, all_attrs_tracked = zip(*jaxpr_data)
-  all_const_avals = [map(core.get_aval, consts) for consts in all_consts]
+  all_const_avals = [safe_map(core.get_aval, consts) for consts in all_consts]
 
   # TODO(sharadmv,mattjj): we could dedup *all consts* instead of just the Refs.
 
@@ -185,8 +183,8 @@ def _pad_jaxpr_constvars(jaxpr, i, canonical_ref_avals, canonical_ref_indices,
   is_ref = [isinstance(v.aval, state.AbstractRef) for v in jaxpr.constvars]
   nonref_constvars, ref_constvars = partition_list(is_ref, jaxpr.constvars)
   newvar = core.gensym(suffix='_')
-  padded_ref_constvars  = map(newvar, canonical_ref_avals)
-  padded_non_ref_constvars  = map(newvar, canonical_non_ref_avals)
+  padded_ref_constvars  = safe_map(newvar, canonical_ref_avals)
+  padded_non_ref_constvars  = safe_map(newvar, canonical_non_ref_avals)
   for canonical_id, ref_var in zip(canonical_ref_indices[i], ref_constvars):
     padded_ref_constvars[canonical_id] = ref_var
   for canonical_id, non_ref_var in zip(canonical_non_ref_indices[i], nonref_constvars):
@@ -216,7 +214,7 @@ def _check_tree_and_avals(what1, tree1, avals1, what2, tree2, avals2):
           f"{what2} has {thing2}, so {explanation}")
     raise TypeError('\n'.join(msg))
 
-  if not all(map(core.typematch, avals1, avals2)):
+  if not all(safe_map(core.typematch, avals1, avals2)):
     diff = tree_map(_show_diff, tree_unflatten(tree1, avals1),
                     tree_unflatten(tree2, avals2))
     raise TypeError(f"{what1} and {what2} must have identical types, got\n{diff}.")

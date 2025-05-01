@@ -42,6 +42,7 @@ from jax._src.state import discharge as state_discharge
 from jax._src.state import indexing
 from jax._src.state import types as state_types
 from jax._src.state.types import TransformedRef
+from jax._src.util import safe_map, safe_zip
 import jax.numpy as jnp
 
 class DynamicGridDim:
@@ -133,9 +134,6 @@ class Buffered:
   buffer_count: int
 
 split_list = util.split_list
-
-map, unsafe_map = util.safe_map, map
-zip, unsafe_zip = util.safe_zip, zip
 
 
 class ShapedArrayWithMemorySpace(jax_core.ShapedArray):
@@ -557,7 +555,7 @@ class BlockSpec:
           f"Currently returning {len(unflat_avals)} values:"
       )
     # Verify types match
-    for i, (idx_aval, bd) in enumerate(zip(unflat_avals, block_shape)):
+    for i, (idx_aval, bd) in enumerate(safe_zip(unflat_avals, block_shape)):
       match bd:
         case BoundedSlice():
           if not isinstance(idx_aval, indexing.Slice):
@@ -701,12 +699,12 @@ class BlockMapping:
         case _:
           raise ValueError(f"Unsupported block dim type: {type(b)}")
     return tuple(
-        _get_start_index(i, b) for i, b in zip(block_indices, self.block_shape)
+        _get_start_index(i, b) for i, b in safe_zip(block_indices, self.block_shape)
     )
 
   def has_trivial_window(self):
     """If block shape is same as the array shape and index_map returns 0s."""
-    for b, s in zip(self.block_shape, self.array_shape_dtype.shape):
+    for b, s in safe_zip(self.block_shape, self.array_shape_dtype.shape):
       if _get_block_dim_size(b) != s:
         return False
     for atom in self.index_map_jaxpr.jaxpr.outvars:
@@ -844,7 +842,7 @@ class GridMapping:
       axis_env_ctx = contextlib.nullcontext()
     else:
       axis_env_ctx = jax_core.extend_axis_env_nd(
-          zip(self.grid_names, self.grid)
+          safe_zip(self.grid_names, self.grid)
       )
     with tracing_grid_env(self.grid, self.vmapped_dims), axis_env_ctx:
       yield
@@ -1061,7 +1059,7 @@ def get_grid_mapping(
   if grid_spec.scratch_shapes:
     flat_scratch_shapes, scratch_tree = tree_util.tree_flatten(
         grid_spec.scratch_shapes)
-    flat_scratch_avals = map(lambda s: s.get_ref_aval(), flat_scratch_shapes)
+    flat_scratch_avals = safe_map(lambda s: s.get_ref_aval(), flat_scratch_shapes)
     num_flat_scratch_operands = len(flat_scratch_avals)
     jaxpr_scratch_avals = tree_util.tree_unflatten(
         scratch_tree, flat_scratch_avals)
@@ -1081,7 +1079,7 @@ def get_grid_mapping(
   else:
     flat_in_specs = [no_block_spec] * len(in_avals)
 
-  in_block_mappings = map(
+  in_block_mappings = safe_map(
       partial(
           _convert_block_spec_to_block_mapping,
           index_map_avals=index_map_avals,
@@ -1103,7 +1101,7 @@ def get_grid_mapping(
   else:
     flat_out_specs = [no_block_spec] * len(out_avals)
 
-  out_block_mappings = map(
+  out_block_mappings = safe_map(
       partial(
           _convert_block_spec_to_block_mapping,
           index_map_avals=index_map_avals,

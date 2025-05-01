@@ -59,8 +59,6 @@ import numpy as np
 
 ## JAX utilities
 
-map, unsafe_map = safe_map, map
-zip, unsafe_zip = safe_zip, zip
 PyTreeDef = tree_util.PyTreeDef
 
 ## Discharging state
@@ -78,7 +76,7 @@ def discharge_state(jaxpr: core.Jaxpr, consts: Sequence[Any], * ,
     should_discharge = [should_discharge] * len(jaxpr.invars)
   in_avals = [v.aval.inner_aval
               if isinstance(v.aval, AbstractRef) and d
-              else v.aval for v, d in zip(jaxpr.invars, should_discharge)]
+              else v.aval for v, d in safe_zip(jaxpr.invars, should_discharge)]
   eval_jaxpr = lu.wrap_init(partial(_eval_jaxpr_discharge_state, jaxpr,
                                     should_discharge, consts),
                             debug_info=jaxpr.debug_info)
@@ -146,7 +144,7 @@ def _eval_jaxpr_discharge_state(
   # regular values in this interpreter.
   foreach(env.write, jaxpr.invars, args)
 
-  refs_to_discharge = {id(v.aval) for v, d in zip(jaxpr.invars, should_discharge)
+  refs_to_discharge = {id(v.aval) for v, d in safe_zip(jaxpr.invars, should_discharge)
                        if d and isinstance(v.aval, AbstractRef)}
 
   for eqn in jaxpr.eqns:
@@ -175,12 +173,12 @@ def _eval_jaxpr_discharge_state(
         else:
           raise NotImplementedError("No state discharge rule implemented for "
               f"primitive: {eqn.primitive}")
-        invals = map(env.read, eqn.invars)
+        invals = safe_map(env.read, eqn.invars)
         in_avals = [v.aval for v in eqn.invars]
         out_avals = [v.aval for v in eqn.outvars]
         new_invals, ans = rule(
             in_avals, out_avals, *invals, **eqn.params)
-        for invar, should, new_inval in zip(eqn.invars, should_discharge, new_invals):
+        for invar, should, new_inval in safe_zip(eqn.invars, should_discharge, new_invals):
           if new_inval is not None:
             if not should:
               raise ValueError(
@@ -202,13 +200,13 @@ def _eval_jaxpr_discharge_state(
   # By convention, we return the outputs of the jaxpr first and then the final
   # values of the `Ref`s. Callers to this function should be able to split
   # them up by looking at `len(jaxpr.outvars)`.
-  out_vals = map(env.read, jaxpr.outvars)
-  ref_vals = map(
+  out_vals = safe_map(env.read, jaxpr.outvars)
+  ref_vals = safe_map(
       env.read, [v for v in jaxpr.invars if id(v.aval) in refs_to_discharge])
   return out_vals + ref_vals
 
 def _is_trivial_indexer(indexer: indexing.NDIndexer):
-  for s, idx in zip(indexer.shape, indexer.indices):
+  for s, idx in safe_zip(indexer.shape, indexer.indices):
     if not isinstance(idx, indexing.Slice):
       return False
     if not isinstance(idx.start, int):
@@ -384,7 +382,7 @@ def _index_array(x, indexer: indexing.NDIndexer):
   # Try the three APIs in the following order: `lax.slice`,
   # `lax.dynamic_slice` and gather
   if maybe_slice := _maybe_convert_to_slice(indexer):
-    x = lax_slicing.slice(x, *zip(*maybe_slice))
+    x = lax_slicing.slice(x, *safe_zip(*maybe_slice))
   # If everything in the indexer is a slice or ()-shaped, we can also
   # use `lax.dynamic_slice` with 1-sized slices for ()-shaped indices.
   # We need to squeeze out the 1-sized slices at the end.
@@ -469,7 +467,7 @@ def transform_swap_array(x, transforms, val):
   new_x = val
 
   # Write phase (reversed loop)
-  for intermediate, transform in reversed(zip(intermediates[:-1], transforms)):
+  for intermediate, transform in reversed(safe_zip(intermediates[:-1], transforms)):
     if isinstance(transform, indexing.NDIndexer):
       indexer = transform
       if _is_trivial_indexer(indexer):
@@ -601,7 +599,7 @@ def _run_state_impl(*args: Any, jaxpr: core.Jaxpr,
   args_it = iter(args)
   args = tuple(
       next(args_it) if is_init else _default_initialization(var.aval)
-      for is_init, var in zip(is_initialized, discharged_jaxpr.invars)
+      for is_init, var in safe_zip(is_initialized, discharged_jaxpr.invars)
   )
   return core.eval_jaxpr(discharged_jaxpr, consts, *args)
 run_state_p.def_impl(_run_state_impl)
@@ -660,12 +658,12 @@ def _run_state_jvp(primals: Sequence[Any], tangents: Sequence[Any], *,
         nonzero_tangents, instantiate=nonzero_tangents)
     if out_nonzero_tangents == nonzero_tangents:
       break
-    nonzero_tangents = map(operator.or_, nonzero_tangents, out_nonzero_tangents)
+    nonzero_tangents = safe_map(operator.or_, nonzero_tangents, out_nonzero_tangents)
   else:
     raise Exception("Invalid fixpoint")
   del discharged_jaxpr, body_consts, out_nonzero_tangents
   tangents = [ad.instantiate_zeros(t) if inst else t
-              for t, inst in zip(tangents, nonzero_tangents)]
+              for t, inst in safe_zip(tangents, nonzero_tangents)]
   tangents = [t for t in tangents if type(t) is not ad_util.Zero]
   closed_jvp_jaxpr, _ = ad.jvp_jaxpr(pe.close_jaxpr(jaxpr),
                                      nonzero_tangents, [])
@@ -681,7 +679,7 @@ def _run_state_jvp(primals: Sequence[Any], tangents: Sequence[Any], *,
   del out_consts
   out_tangents_iter = iter(out_tangents)
   out_tangents = [next(out_tangents_iter) if nz else ad_util.Zero.from_primal_value(p)
-                  for p, nz in zip(out_primals, nonzero_tangents)]
+                  for p, nz in safe_zip(out_primals, nonzero_tangents)]
   return out_primals, out_tangents
 ad.primitive_jvps[run_state_p] = _run_state_jvp
 
@@ -697,7 +695,7 @@ def _convert_outputs_to_writes(
     # refs.
     orig_refs, residual_refs = split_list(refs, [len(in_avals)])
     residual_vals = core.eval_jaxpr(jaxpr, (), *orig_refs)
-    for res_ref, res_val in zip(residual_refs, residual_vals):
+    for res_ref, res_val in safe_zip(residual_refs, residual_vals):
       res_ref[...] = res_val
     return []
   res_ref_avals = [AbstractRef(v.aval) if not isinstance(v.aval, AbstractRef)
@@ -755,12 +753,12 @@ def _run_state_partial_eval(trace: pe.JaxprTrace, *tracers: pe.JaxprTracer,
     out_unknowns = list(out_unknowns)
     if out_unknowns == in_unknowns:
       break
-    in_unknowns = map(operator.or_, in_unknowns, out_unknowns)
+    in_unknowns = safe_map(operator.or_, in_unknowns, out_unknowns)
   else:
     raise Exception("Invalid fixpoint")
   del out_unknowns  # redundant since it's the same as `in_unknowns`
   tracers = tuple(trace.instantiate_const(t) if uk else t
-                  for t, uk in zip(tracers, in_unknowns))
+                  for t, uk in safe_zip(tracers, in_unknowns))
 
   # We use `partial_eval_jaxpr_stateful` here because it won't remove effectful
   # primitives like `get`/`set`.
@@ -789,7 +787,7 @@ def _run_state_partial_eval(trace: pe.JaxprTrace, *tracers: pe.JaxprTracer,
   known_which_linear, _ = partition_list(in_unknowns, which_linear)
   known_vals = [t.pval.get_known() for t in known_tracers]
   all_res_avals = [*res_avals, *new_res_avals]
-  empty_res = map(ad_util.zeros_like_aval, all_res_avals)
+  empty_res = safe_map(ad_util.zeros_like_aval, all_res_avals)
   jaxpr_known_args = [*known_vals, *empty_res]
 
   jaxpr_known_which_linear = (*known_which_linear, *(False,) * num_res)
@@ -798,7 +796,7 @@ def _run_state_partial_eval(trace: pe.JaxprTrace, *tracers: pe.JaxprTracer,
                               # TODO(sharadmv): compute this in the general case
                               is_initialized=(True,) * len(jaxpr_known.invars))
   known_outputs, residuals = split_list(out_flat, [len(known_tracers)])
-  residuals = map(trace.new_instantiated_const, residuals)
+  residuals = safe_map(trace.new_instantiated_const, residuals)
   ref_res, nonref_res = split_list(residuals, [num_res_ref])
 
   # Now we handle the `jaxpr_unknown` that expects residual values as inputs.
@@ -875,12 +873,12 @@ def _run_state_partial_eval_custom(
     out_unknowns = list(out_unknowns)
     if out_unknowns == in_unknowns:
       break
-    in_unknowns = map(operator.or_, in_unknowns, out_unknowns)
+    in_unknowns = safe_map(operator.or_, in_unknowns, out_unknowns)
   else:
     if num_inputs > 0:
       raise Exception("Invalid fixpoint")
   del out_unknowns # Redundant since it's the same as `in_unknowns`
-  new_inst = [x for x, already, inst in zip(eqn.invars, in_inst, out_inst)
+  new_inst = [x for x, already, inst in safe_zip(eqn.invars, in_inst, out_inst)
               if type(x) is core.Var and inst and not already]
 
   # We use `partial_eval_jaxpr_stateful` here because it won't remove effectful
@@ -902,16 +900,16 @@ def _run_state_partial_eval_custom(
   jaxpr_known, res_avals = _convert_outputs_to_writes(jaxpr_known_resout)
 
   # In a stateful partial_eval, the residuals should be `Ref`s.
-  res_avals = map(AbstractRef, res_avals)
+  res_avals = safe_map(AbstractRef, res_avals)
 
   known_invars, staged_invars = partition_list(in_unknowns, eqn.invars)
   known_outvars, staged_outvars = partition_list(in_unknowns, eqn.outvars)
   newvar = core.gensym()
   _, res_ref_avals = split_list([v.aval for v in jaxpr_known_resout.invars],
                                 [len(known_invars)])
-  nonref_resvars = map(newvar, res_avals)
-  ref_resvars = map(newvar, res_ref_avals)
-  known_out_resvars = map(newvar, [*res_ref_avals, *res_avals])
+  nonref_resvars = safe_map(newvar, res_avals)
+  ref_resvars = safe_map(newvar, res_ref_avals)
+  known_out_resvars = safe_map(newvar, [*res_ref_avals, *res_avals])
 
   known_which_linear, _ = partition_list(in_unknowns, which_linear)
   jaxpr_known_which_linear = (*known_which_linear, *(False,) * num_res)
@@ -987,7 +985,7 @@ def _transpose_jaxpr(jaxpr: core.Jaxpr, which_linear: Sequence[bool],
     _, res_avals = split_list(res_jaxpr_avals, [num_known])
     res_avals = [a.inner_aval for a in res_avals]  # pytype: disable=attribute-error
     all_avals = [*res_avals, *[v.aval for v in res_jaxpr_.outvars]]
-    empty_res = map(ad.zeros_like_aval, all_avals)
+    empty_res = safe_map(ad.zeros_like_aval, all_avals)
     res_jaxpr, _ = _convert_outputs_to_writes(res_jaxpr_)
     res = run_state_p.bind(
         *res_args,
@@ -1037,7 +1035,7 @@ def _run_state_transpose(in_cts, *args, jaxpr: core.Jaxpr,
   #                          (zero ct   , not UndefinedPrimal)
   assert any(which_linear)
   transpose_args = []
-  for x, ct in zip(args, in_cts):
+  for x, ct in safe_zip(args, in_cts):
     if   type(ct) is     ad_util.Zero and not ad.is_undefined_primal(x):
       # this is a residual, take x!
       transpose_args.append(x)
@@ -1065,7 +1063,7 @@ def _run_state_transpose(in_cts, *args, jaxpr: core.Jaxpr,
   )
   _, all_outs = split_list(const_all_outs, [len(consts)])
   ct_outs = [ct if ad.is_undefined_primal(x) else None
-             for x, ct in zip(args, all_outs)]
+             for x, ct in safe_zip(args, all_outs)]
   return ct_outs
 ad.primitive_transposes[run_state_p] = _run_state_transpose
 
@@ -1083,7 +1081,7 @@ def _run_state_discharge_rule(in_avals: Sequence[core.AbstractValue],
   out_vals = run_state_p.bind(*args, jaxpr=jaxpr, which_linear=which_linear,
                               is_initialized=is_initialized)
   new_invals = []
-  for aval, out_val in zip(in_avals, out_vals):
+  for aval, out_val in safe_zip(in_avals, out_vals):
     new_invals.append(out_val if isinstance(aval, AbstractRef) else None)
   return new_invals, out_vals
 
@@ -1138,7 +1136,7 @@ def run_state_reference(f: Callable[..., None]):
     # Initialize any uninitialized values here in ref_args in the reference.
     ref_args = [
         _default_initialization(aval) if r is uninitialized else r
-        for r, aval in zip(ref_args, ref_avals)
+        for r, aval in safe_zip(ref_args, ref_avals)
     ]
 
     out_const_flat = core.eval_jaxpr(discharged_jaxpr, discharged_consts,

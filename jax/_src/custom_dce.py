@@ -29,12 +29,10 @@ from jax._src.interpreters import ad
 from jax._src.interpreters import batching
 from jax._src.interpreters import mlir
 from jax._src.interpreters import partial_eval as pe
+from jax._src.util import safe_zip
 
 source_info_util.register_exclusion(__file__)
 traceback_util.register_exclusion(__file__)
-
-map, unsafe_map = util.safe_map, map
-zip, unsafe_zip = util.safe_zip, zip
 
 
 @custom_api_util.register_custom_decorator_type
@@ -278,7 +276,7 @@ def flatten_dce_rule(
     ) from None
 
   results = []
-  for kp, used, aval, val in zip(keypaths, used_outs, out_avals, out_flat):
+  for kp, used, aval, val in safe_zip(keypaths, used_outs, out_avals, out_flat):
     if not used:
       continue
     if val is sentinal:
@@ -324,7 +322,7 @@ def custom_dce_batching(
   in_batched = [d is not batching.not_mapped for d in dims]
   args = [
       batching.moveaxis(x, d, 0) if b else x
-      for b, x, d in zip(in_batched, args, dims)
+      for b, x, d in safe_zip(in_batched, args, dims)
   ]
   batched_fun_jaxpr, out_batched = batching.batch_jaxpr(
       fun_jaxpr, axis_data, in_batched, False
@@ -335,11 +333,11 @@ def custom_dce_batching(
       *used_outs: bool,
   ) -> tuple[core.ClosedJaxpr, Sequence[bool]]:
     dce_jaxpr, used_ins = dce_jaxpr_thunk(*used_outs)
-    used_out_batched = [b for used, b in zip(used_outs, out_batched) if used]
+    used_out_batched = [b for used, b in safe_zip(used_outs, out_batched) if used]
     dce_jaxpr_batched, dce_out_batched = batching.batch_jaxpr(
         dce_jaxpr,
         axis_data,
-        [b for used, b in zip(used_ins, in_batched[num_consts:]) if used],
+        [b for used, b in safe_zip(used_ins, in_batched[num_consts:]) if used],
         used_out_batched,
     )
     # TODO(danfm): For now we require that the DCE rule produce the same
@@ -349,7 +347,7 @@ def custom_dce_batching(
     # solve this by using instantiate=True when batching fun_jaxpr, but this
     # ends up changing the batching behavior sufficiently that it breaks some
     # real world use cases. Revisit if needed.
-    assert all(a == b for a, b in zip(dce_out_batched, used_out_batched))
+    assert all(a == b for a, b in safe_zip(dce_out_batched, used_out_batched))
     return dce_jaxpr_batched, used_ins
 
   out_flat = custom_dce_p.bind(
@@ -364,7 +362,7 @@ def custom_dce_batching(
 
 def custom_dce_jvp(primals, tangents, *, fun_jaxpr: core.ClosedJaxpr, **_):
   in_nz = [not isinstance(t, ad.Zero) for t in tangents]
-  tangents = [t for nz, t in zip(in_nz, tangents) if nz]
+  tangents = [t for nz, t in safe_zip(in_nz, tangents) if nz]
   jvp_jaxpr, out_nz = ad.jvp_jaxpr(fun_jaxpr, in_nz, False)
 
   # TODO(danfm): We should avoid losing the DCE rule here, but it is more
@@ -382,7 +380,7 @@ def custom_dce_jvp(primals, tangents, *, fun_jaxpr: core.ClosedJaxpr, **_):
   out_tangents_iter = iter(out_tangents)
   out_tangents = [
       next(out_tangents_iter) if nz else ad.Zero.from_primal_value(p)
-      for p, nz in zip(out_primals, out_nz)
+      for p, nz in safe_zip(out_primals, out_nz)
   ]
   return out_primals, out_tangents
 
@@ -414,8 +412,8 @@ def custom_dce_rule(used_outs: Sequence[bool], eqn: core.JaxprEqn):
     return new_jaxpr, new_used_ins
 
   _, invars = util.split_list(eqn.invars, [num_consts])
-  invars = [v for used, v in zip(used_ins, invars) if used]
-  outvars = [v for used, v in zip(used_outs, eqn.outvars) if used]
+  invars = [v for used, v in safe_zip(used_ins, invars) if used]
+  outvars = [v for used, v in safe_zip(used_outs, eqn.outvars) if used]
   new_params = dict(
       eqn.params,
       num_consts=0,

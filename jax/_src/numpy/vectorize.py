@@ -25,7 +25,7 @@ from jax._src import api
 from jax._src import config
 from jax import lax
 from jax._src.numpy import lax_numpy as jnp
-from jax._src.util import set_module, safe_map as map, safe_zip as zip
+from jax._src.util import set_module, safe_map, safe_zip
 
 
 export = set_module('jax.numpy')
@@ -92,7 +92,7 @@ def _update_dim_sizes(
           % (shape, core_dims, error_context))
 
   core_shape = shape[-num_core_dims:] if core_dims else ()
-  for dim, size in zip(core_dims, core_shape):
+  for dim, size in safe_zip(core_dims, core_shape):
     if dim not in dim_sizes:
       dim_sizes[dim] = size
     elif size != dim_sizes[dim]:
@@ -123,7 +123,7 @@ def _parse_input_dimensions(
         % (len(input_core_dims), len(args), error_context))
   shapes = []
   dim_sizes: dict[str, int] = {}
-  for arg, core_dims in zip(args, input_core_dims):
+  for arg, core_dims in safe_zip(args, input_core_dims):
     _update_dim_sizes(dim_sizes, arg.shape, core_dims, error_context,
                       is_input=True)
     ndim = arg.ndim - len(core_dims)
@@ -142,7 +142,7 @@ def _check_output_dims(
   """Check that output core dimensions match the signature."""
   def wrapped(*args):
     out = func(*args)
-    out_shapes = map(np.shape, out if isinstance(out, tuple) else [out])
+    out_shapes = safe_map(np.shape, out if isinstance(out, tuple) else [out])
 
     output_core_dims = expected_output_core_dims
     if len(output_core_dims) > 1 and not isinstance(out, tuple):
@@ -155,7 +155,7 @@ def _check_output_dims(
           % (len(output_core_dims), len(out_shapes), error_context))
 
     sizes = dict(dim_sizes)
-    for shape, core_dims in zip(out_shapes, output_core_dims):
+    for shape, core_dims in safe_zip(out_shapes, output_core_dims):
       _update_dim_sizes(sizes, shape, core_dims, error_context,
                         is_input=False)
 
@@ -287,7 +287,7 @@ def vectorize(pyfunc, *, excluded=frozenset(), signature=None):
       excluded_func, args, _ = _apply_excluded(excluded_func, none_args, args, {})
       input_core_dims = [dim for i, dim in enumerate(input_core_dims) if i not in none_args]
 
-    args = tuple(map(jnp.asarray, args))
+    args = tuple(safe_map(jnp.asarray, args))
 
     broadcast_shape, dim_sizes = _parse_input_dimensions(
         args, input_core_dims, error_context)
@@ -301,7 +301,7 @@ def vectorize(pyfunc, *, excluded=frozenset(), signature=None):
     # Detect implicit rank promotion:
     if config.numpy_rank_promotion.value != "allow":
       ranks = [arg.ndim - len(core_dims)
-               for arg, core_dims in zip(args, input_core_dims)
+               for arg, core_dims in safe_zip(args, input_core_dims)
                if arg.ndim != 0]
       if len(set(ranks)) > 1:
         msg = (f"operands with shapes {[arg.shape for arg in args]} require rank"
@@ -325,7 +325,7 @@ def vectorize(pyfunc, *, excluded=frozenset(), signature=None):
     squeezed_args = []
     rev_filled_shapes = []
 
-    for arg, core_dims in zip(args, input_core_dims):
+    for arg, core_dims in safe_zip(args, input_core_dims):
       noncore_shape = arg.shape[:arg.ndim - len(core_dims)]
 
       pad_ndim = len(broadcast_shape) - len(noncore_shape)
@@ -338,7 +338,7 @@ def vectorize(pyfunc, *, excluded=frozenset(), signature=None):
 
     vectorized_func = checked_func
     dims_to_expand = []
-    for negdim, axis_sizes in enumerate(zip(*rev_filled_shapes)):
+    for negdim, axis_sizes in enumerate(safe_zip(*rev_filled_shapes)):
       in_axes = tuple(None if size == 1 else 0 for size in axis_sizes)
       if all(axis is None for axis in in_axes):
         dims_to_expand.append(len(broadcast_shape) - 1 - negdim)

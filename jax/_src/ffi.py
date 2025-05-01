@@ -38,7 +38,6 @@ from jax._src.lib.mlir import ir
 from jax._src.typing import (Array, ArrayLike, DeprecatedArg, DuckTypedArray,
                              Shape)
 
-map, unsafe_map = util.safe_map, map
 FfiLayoutOptions = Sequence[int] | DeviceLocalLayout | None
 
 
@@ -204,13 +203,13 @@ def build_ffi_lowering_function(
     if "result_types" not in kwargs:
       kwargs["result_types"] = [mlir.aval_to_ir_type(aval) for aval in ctx.avals_out]
     if operand_layouts is None:
-      kwargs["operand_layouts"] = map(_convert_layout_for_lowering, ctx.avals_in)
+      kwargs["operand_layouts"] = list(map(_convert_layout_for_lowering, ctx.avals_in))
     else:
       kwargs["operand_layouts"] = [
           _convert_layout_for_lowering(*args)
           for args in zip(ctx.avals_in, operand_layouts)]
     if result_layouts is None:
-      kwargs["result_layouts"] = map(_convert_layout_for_lowering, ctx.avals_out)
+      kwargs["result_layouts"] = list(map(_convert_layout_for_lowering, ctx.avals_out))
     else:
       kwargs["result_layouts"] = [
           _convert_layout_for_lowering(*args)

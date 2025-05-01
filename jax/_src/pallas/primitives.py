@@ -33,7 +33,6 @@ from jax._src import effects
 from jax._src import linear_util as lu
 from jax._src import pretty_printer as pp
 from jax._src import state
-from jax._src import util
 from jax._src.interpreters import ad
 from jax._src.interpreters import batching
 from jax._src.interpreters import partial_eval as pe
@@ -42,15 +41,13 @@ from jax._src.state import discharge as state_discharge
 from jax._src.state import indexing
 from jax._src.state import types as state_types
 from jax._src.state import primitives as sp
+from jax._src.util import safe_map, safe_zip
 from jax.interpreters import mlir
 import jax.numpy as jnp
 
 partial = functools.partial
 Slice = indexing.Slice
 NDIndexer = indexing.NDIndexer
-
-map, unsafe_map = util.safe_map, map
-zip, unsafe_zip = util.safe_zip, zip
 
 program_id_p = jax_core.Primitive("program_id")
 batching.ragged_prop_rules[program_id_p] = batching.ragged_mask_no_op_rule
@@ -825,7 +822,7 @@ def debug_print_abstract_eval(*avals: Any, fmt: str, has_placeholders: bool):
 
 def debug_print_batching_rule(args, dims, **params):
   """Unrolls the print primitive across the mapped axis."""
-  axis_size = next(x.shape[i] for x, i in zip(args, dims) if i is not None)
+  axis_size = next(x.shape[i] for x, i in safe_zip(args, dims) if i is not None)
 
   # TODO(sharadmv): implement in terms of rolled loop unstead of unrolled.
   def get_arg_at_dim(i, dim, arg):
@@ -836,9 +833,9 @@ def debug_print_batching_rule(args, dims, **params):
 
   outs = []
   for i in range(axis_size):
-    args_idx = map(functools.partial(get_arg_at_dim, i), dims, args)
+    args_idx = safe_map(functools.partial(get_arg_at_dim, i), dims, args)
     outs.append(debug_print_p.bind(*args_idx, **params))
-  outs = [jnp.stack(xs) for xs in zip(*outs)]
+  outs = [jnp.stack(xs) for xs in safe_zip(*outs)]
   return outs, (0,) * len(outs)
 
 
@@ -869,7 +866,7 @@ def debug_print_lowering_rule(ctx, *args, **params):
 def wrap_with_transforms(f, transforms, *args):
   new_args = tuple(
       state_types.TransformedRef(a, t) if t else a
-      for a, t in zip(args, transforms)
+      for a, t in safe_zip(args, transforms)
   )
   return f(*new_args)
 
@@ -965,7 +962,7 @@ def _run_scoped_discharge_rule(
   # body. For other values we leave them in place.
   updates = [
       ref_outputs.pop(0) if should and isinstance(aval, pallas_core.AbstractMemoryRef)
-      else None for should, aval in zip(should_discharge, in_avals)]
+      else None for should, aval in safe_zip(should_discharge, in_avals)]
   assert len(updates) == len(in_avals), f'{len(updates)} != {len(in_avals)}'
   return updates, return_values
 

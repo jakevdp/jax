@@ -29,13 +29,12 @@ from jax._src import tree_util
 from jax._src.state import indexing
 from jax._src.typing import Array
 from jax._src.typing import DTypeLike
-from jax._src.util import safe_map, safe_zip
+from jax._src.util import safe_map
 import numpy as np
 
 ## JAX utilities
 
 map, unsafe_map = safe_map, map
-zip, unsafe_zip = safe_zip, zip
 traceback_util.register_exclusion(__file__)
 
 _ref_effect_color = pp.Color.GREEN

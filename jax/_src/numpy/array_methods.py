@@ -49,10 +49,7 @@ from jax._src.numpy import reductions
 from jax._src.numpy import ufuncs
 from jax._src.ops import scatter
 from jax._src.typing import Array, ArrayLike, DimSize, DTypeLike, Shape, StaticScalar
-from jax._src.util import safe_zip, safe_map
-
-map, unsafe_map = safe_map, map
-zip, unsafe_zip = safe_zip, zip
+from jax._src.util import safe_zip
 
 
 ### add method and operator overloads to arraylike classes
@@ -624,7 +621,7 @@ def _multi_slice(self: Array,
   Array method here to avoid circular imports.
   """
   results: list[Array] = []
-  for starts, limits, removed in zip(start_indices, limit_indices, removed_dims):
+  for starts, limits, removed in safe_zip(start_indices, limit_indices, removed_dims):
     sliced = lax.slice(self, starts, limits)
     if removed:
       sliced = lax.squeeze(sliced, removed)
