@@ -63,6 +63,7 @@ Random Samplers
     poisson
     rademacher
     randint
+    raw_bits
     rayleigh
     t
     triangular

@@ -396,7 +396,35 @@ def maybe_auto_axes(f, out_sharding, **hoist_kwargs):
   else:
     return auto_axes(f_, out_sharding=out_sharding,
                      axes=out_sharding.mesh.explicit_axes)
+  
 
+def raw_bits(key: ArrayLike, *xs: ArrayLike) -> Array:
+  """Compute the raw uint32 bit arrays from the PRNG hash function.
+
+  Args:
+    key: a PRNG key used as the random key.
+    *xs: one or more arrays of counter bits. The number of arrays and
+      their dtypes must match those expected by the hash function
+      associated with the key (see example below).
+
+  Returns:
+    An array of raw bits with shape determined by the impl's hash function.
+
+  Examples:
+    For threefry2x32, the counter is represented by two uint32 values, so
+    we initialize it with a ``(..., 2)`` array of dtype uint32:
+
+    >>> import jax
+    >>> import jax.numpy as jnp
+    >>> key = jax.random.key(111, impl="threefry2x32")
+    >>> jax.random.raw_bits(key, jnp.uint32(111), jnp.uint32(222))
+    [Array(4176824260, dtype=uint32), Array(1106456888, dtype=uint32)]
+  """
+  key, _ = _check_prng_key("bits", key)
+  impl = key.dtype._impl
+  if impl.raw_bits is None:
+    raise ValueError(f"PRNG impl {impl.name!r} does not support raw_bits")
+  return impl.raw_bits(*key_data(key), *xs)
 
 def bits(key: ArrayLike,
          shape: Shape = (),

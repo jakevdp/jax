@@ -242,6 +242,7 @@ from jax._src.random import (
   permutation as permutation,
   poisson as poisson,
   rademacher as rademacher,
+  raw_bits as raw_bits,
   randint as randint,
   random_gamma_p as random_gamma_p,
   rayleigh as rayleigh,

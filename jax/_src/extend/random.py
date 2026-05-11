@@ -26,8 +26,9 @@ def define_prng_impl(*,
                      split: Callable[[Array, Shape], Array],
                      random_bits: Callable[[Array, int, Shape], Array],
                      fold_in: Callable[[Array, int], Array],
+                     raw_bits: Callable[..., Array] | None = None,
                      name: str = '<unnamed>',
                      tag: str = '?') -> Hashable:
   return random.PRNGSpec(prng.PRNGImpl(
       key_shape, seed, split, random_bits, fold_in,
-      name=name, tag=tag))
+      name=name, tag=tag, raw_bits=raw_bits))

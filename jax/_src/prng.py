@@ -99,6 +99,7 @@ class PRNGImpl(NamedTuple):
   fold_in: Callable
   name: str = '<unnamed>'
   tag: str = '?'
+  raw_bits: Callable | None = None
 
   def __hash__(self) -> int:
     return hash(self.tag)
@@ -1262,6 +1263,7 @@ threefry_prng_impl = PRNGImpl(
     seed=threefry_seed,
     split=threefry_split,
     random_bits=threefry_random_bits,
+    raw_bits=threefry2x32_p.bind,
     fold_in=threefry_fold_in,
     name='threefry2x32',
     tag='fry')
